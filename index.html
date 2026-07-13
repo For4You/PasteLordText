@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PastePro • Firebase Realtime Database</title>
+    <title>PastePro • لصق النصوص والأكواد</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
@@ -221,23 +221,11 @@
             <!-- Hero Header -->
             <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-y-4 mb-8">
                 <div>
-                    <div class="flex items-center gap-x-3">
-                        <h1 class="text-4xl font-bold tracking-tighter">إنشاء لصقة جديدة</h1>
-                        <div class="px-3 py-1 text-xs font-semibold bg-indigo-500/10 text-indigo-400 rounded-full flex items-center gap-x-1.5">
-                            <i class="fas fa-shield-alt"></i>
-                            <span>محفوظ سحابياً</span>
-                        </div>
-                    </div>
+                    <h1 class="text-4xl font-bold tracking-tighter">إنشاء لصقة جديدة</h1>
                     <p class="text-zinc-400 mt-1.5">شارك النصوص والأكواد بسرعة واحترافية</p>
                 </div>
-                
-                <div class="flex items-center gap-x-3 text-sm">
-                    <!-- No personal elements -->
-                    <div id="firebase-status" class="text-xs text-amber-400 flex items-center gap-x-2">
-                        <span class="inline-block w-2 h-2 rounded-full bg-current"></span>
-                        <span>جارٍ الاتصال بـ Firebase...</span>
-                    </div>
-                </div>
+
+                <div id="firebase-status" class="hidden text-xs text-red-400 items-center gap-x-2 gap-y-1 flex-wrap" role="status" aria-live="polite"></div>
             </div>
 
             <!-- Create Form Card -->
@@ -280,7 +268,7 @@
                             <label class="block text-sm font-medium text-zinc-300">المحتوى</label>
                             <div class="text-xs text-zinc-500 flex items-center gap-x-1">
                                 <i class="fas fa-info-circle"></i>
-                                <span>يدعم حتى 500 ألف حرف</span>
+                                <span id="content-size-hint">يدعم حتى 8 ملايين حرف حسب حجم النص</span>
                             </div>
                         </div>
                         
@@ -329,9 +317,7 @@
                 </div>
             </div>
             
-            <div class="text-center mt-6 text-xs text-zinc-500">
-                يتم حفظ اللصقات في Firebase Realtime Database • الروابط تعمل من أي جهاز
-            </div>
+
         </div>
 
         <!-- VIEW PASTE -->
@@ -414,7 +400,7 @@
                 
                 <div class="flex items-center gap-x-3">
                     <div class="relative w-72">
-                        <input id="search-pastes" type="text" placeholder="ابحث في اللصقات..." 
+                        <input id="search-pastes" type="text" placeholder="ابحث بالعنوان أو المعرّف..." 
                                onkeyup="filterMyPastes()"
                                class="w-full bg-zinc-900 border border-zinc-700 focus:border-indigo-500 pl-11 pr-4 py-3 rounded-2xl text-sm outline-none">
                         <i class="fas fa-search absolute right-4 top-4 text-zinc-400"></i>
@@ -441,6 +427,27 @@
         </div>
         
     </div>
+
+
+    <footer class="border-t border-zinc-800 bg-zinc-950/80 mt-10">
+        <div class="max-w-screen-xl mx-auto px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="text-xs text-zinc-500">PastePro</div>
+            <div class="flex items-center gap-3" aria-label="منصات التواصل">
+                <a href="https://t.me/Netflixs02" target="_blank" rel="noopener noreferrer"
+                   class="flex items-center gap-x-2 px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-sky-500/60 hover:text-sky-400 transition-colors text-sm"
+                   aria-label="قناة تيليغرام">
+                    <i class="fab fa-telegram-plane"></i>
+                    <span>تيليغرام</span>
+                </a>
+                <a href="https://www.facebook.com/WebStores0/" target="_blank" rel="noopener noreferrer"
+                   class="flex items-center gap-x-2 px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-blue-500/60 hover:text-blue-400 transition-colors text-sm"
+                   aria-label="صفحة فيسبوك">
+                    <i class="fab fa-facebook-f"></i>
+                    <span>فيسبوك</span>
+                </a>
+            </div>
+        </div>
+    </footer>
 
     <!-- Toast Notification -->
     <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 px-6 py-3 rounded-2xl shadow-xl flex items-center gap-x-3 z-[100]">
@@ -527,55 +534,74 @@ const VISIBILITY_OPTIONS = [
     { value: 'unlisted', label: 'غير مدرج (رابط فقط)' },
 ];
 
+// Large-paste limits. The character cap is intentionally well above 500,000.
+const MAX_CONTENT_CHARACTERS = 8_000_000;
+const MAX_CONTENT_UTF8_BYTES = 9 * 1024 * 1024;
+const MAX_SERIALIZED_WRITE_BYTES = 14 * 1024 * 1024;
+const LARGE_CONTENT_HIGHLIGHT_LIMIT = 250_000;
+const UTF8_ENCODER = new TextEncoder();
+
+function utf8Size(value) {
+    return UTF8_ENCODER.encode(String(value ?? '')).byteLength;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function updateContentSizeHint() {
+    const textarea = document.getElementById('paste-content');
+    const hint = document.getElementById('content-size-hint');
+    if (!textarea || !hint) return;
+
+    const characters = textarea.value.length;
+    if (characters === 0) {
+        hint.textContent = 'يدعم حتى 8 ملايين حرف حسب حجم النص';
+        hint.className = '';
+        return;
+    }
+
+    const bytes = utf8Size(textarea.value);
+    hint.textContent = `${characters.toLocaleString('ar')} حرف • ${formatFileSize(bytes)}`;
+    hint.className = characters > MAX_CONTENT_CHARACTERS || bytes > MAX_CONTENT_UTF8_BYTES
+        ? 'text-red-400'
+        : '';
+}
+
+function createPasteIndexRecord(paste) {
+    const { content, ...metadata } = paste;
+    return metadata;
+}
+
 function initializeTailwind() {
     document.documentElement.style.setProperty('--accent', '#6366f1');
 }
 
-function setFirebaseStatus(message, state = 'loading', errorCode = '') {
+function setFirebaseStatus(message, state = 'loading') {
     const status = document.getElementById('firebase-status');
     if (!status) return;
 
-    const statusClasses = {
-        loading: 'text-amber-400',
-        connected: 'text-emerald-400',
-        error: 'text-red-400'
-    };
+    if (state !== 'error') {
+        status.className = 'hidden';
+        status.replaceChildren();
+        return;
+    }
 
-    status.className = `text-xs flex items-center gap-x-2 gap-y-1 flex-wrap ${statusClasses[state] || statusClasses.loading}`;
+    status.className = 'text-xs text-red-400 flex items-center gap-x-2 gap-y-1 flex-wrap';
     status.replaceChildren();
-
-    const dot = document.createElement('span');
-    dot.className = 'inline-block w-2 h-2 rounded-full bg-current flex-none';
 
     const label = document.createElement('span');
     label.textContent = message;
-    label.title = lastFirebaseError?.message || message;
 
-    status.append(dot, label);
+    const retryButton = document.createElement('button');
+    retryButton.type = 'button';
+    retryButton.className = 'px-2.5 py-1 rounded-lg border border-red-500/40 hover:bg-red-500/10 transition-colors';
+    retryButton.textContent = 'إعادة المحاولة';
+    retryButton.addEventListener('click', retryFirebaseConnection);
 
-    if (errorCode) {
-        const code = document.createElement('code');
-        code.className = 'px-2 py-0.5 rounded-md bg-red-950/60 border border-red-500/30 text-[10px] font-mono direction-ltr';
-        code.dir = 'ltr';
-        code.textContent = errorCode;
-        status.appendChild(code);
-    }
-
-    if (state === 'error') {
-        const retryButton = document.createElement('button');
-        retryButton.type = 'button';
-        retryButton.className = 'px-2.5 py-1 rounded-lg border border-red-500/40 hover:bg-red-500/10 transition-colors';
-        retryButton.textContent = 'إعادة المحاولة';
-        retryButton.addEventListener('click', retryFirebaseConnection);
-        status.appendChild(retryButton);
-
-        const diagnosticButton = document.createElement('button');
-        diagnosticButton.type = 'button';
-        diagnosticButton.className = 'px-2.5 py-1 rounded-lg border border-zinc-500/40 text-zinc-300 hover:bg-zinc-700/40 transition-colors';
-        diagnosticButton.textContent = 'نسخ التشخيص';
-        diagnosticButton.addEventListener('click', copyFirebaseDiagnostic);
-        status.appendChild(diagnosticButton);
-    }
+    status.append(label, retryButton);
 }
 function createFirebaseError(code, message) {
     const error = new Error(message);
@@ -588,6 +614,10 @@ function firebaseErrorMessage(error) {
     const message = String(error?.message || error || '');
     const loweredMessage = message.toLowerCase();
 
+    if (code === 'app/content-too-large') {
+        return 'حجم المحتوى كبير جداً. قلّل حجم النص ثم أعد المحاولة';
+    }
+
     if (code === 'app/file-protocol'
         || code.includes('operation-not-supported-in-this-environment')
         || loweredMessage.includes('file://')) {
@@ -597,29 +627,29 @@ function firebaseErrorMessage(error) {
     if (code.includes('operation-not-allowed')
         || code.includes('admin-restricted-operation')
         || code.includes('configuration-not-found')) {
-        return 'فعّل Anonymous من Authentication ← Sign-in method في مشروع pastelordtext';
+        return 'تعذر تهيئة تسجيل الدخول للموقع. راجع إعدادات المصادقة';
     }
 
     if (code.includes('unauthorized-domain') || code.includes('app-not-authorized')) {
-        return `أضف النطاق ${window.location.hostname || 'الحالي'} إلى Authentication ← Settings ← Authorized domains`;
+        return `النطاق ${window.location.hostname || 'الحالي'} غير مصرح له باستخدام الخدمة`;
     }
 
     if (code.includes('invalid-api-key')
         || code.includes('api-key-not-valid')
         || loweredMessage.includes('api key not valid')) {
-        return 'مفتاح Firebase غير صالح أو قيود Google Cloud API تمنع هذا النطاق';
+        return 'إعدادات الاتصال غير صالحة أو لا تسمح لهذا النطاق';
     }
 
     if (code.includes('too-many-requests') || code.includes('quota-exceeded')) {
-        return 'تم تجاوز حد تسجيل الدخول مؤقتاً؛ أوقف إعادة التحميل المتكرر ثم جرّب لاحقاً';
+        return 'تم تجاوز حد الطلبات مؤقتاً. أعد المحاولة لاحقاً';
     }
 
     if (code.includes('app-check') || loweredMessage.includes('app check')) {
-        return 'App Check يمنع الطلبات؛ عطّل Enforce مؤقتاً لـ Realtime Database أو أضف App Check للموقع';
+        return 'تم رفض الطلب بواسطة حماية الخدمة';
     }
 
     if (code.includes('permission-denied') || loweredMessage.includes('permission_denied')) {
-        return 'تم رفض الوصول: انشر قواعد Realtime Database المرفقة، وتحقق من أن App Check ليس على Enforce';
+        return 'تم رفض الوصول. راجع قواعد الصلاحيات المنشورة';
     }
 
     if (code.includes('timeout')
@@ -631,11 +661,10 @@ function firebaseErrorMessage(error) {
         || loweredMessage.includes('load failed')
         || loweredMessage.includes('cors')
         || loweredMessage.includes('blocked by client')) {
-        return 'تعذر الوصول إلى خوادم Firebase؛ تحقق من الإنترنت، مانع الإعلانات، وفتح الموقع عبر http/https';
+        return 'تعذر الوصول إلى الخدمة. تحقق من الإنترنت ومن تشغيل الموقع عبر http أو https';
     }
 
-    const briefMessage = message.replace(/\s+/g, ' ').trim().slice(0, 140);
-    return `تعذر الاتصال بـ Firebase${code ? ` (${code})` : ''}${briefMessage ? `: ${briefMessage}` : ''}`;
+    return 'تعذر الاتصال بالخدمة. أعد المحاولة';
 }
 
 function buildFirebaseDiagnostic() {
@@ -649,7 +678,6 @@ function buildFirebaseDiagnostic() {
         browserOnline: navigator.onLine,
         authenticated: Boolean(auth.currentUser),
         uidPrefix: auth.currentUser?.uid ? `${auth.currentUser.uid.slice(0, 8)}…` : null,
-        databaseURL: firebaseConfig.databaseURL,
         error: lastFirebaseError ? {
             code: String(lastFirebaseError.code || ''),
             message: String(lastFirebaseError.message || lastFirebaseError || '')
@@ -662,7 +690,7 @@ async function copyFirebaseDiagnostic() {
     const diagnostic = buildFirebaseDiagnostic();
     try {
         await navigator.clipboard.writeText(diagnostic);
-        showToast('تم نسخ تشخيص Firebase');
+        showToast('تم نسخ بيانات التشخيص');
     } catch (error) {
         window.prompt('انسخ التشخيص التالي:', diagnostic);
     }
@@ -745,7 +773,7 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
     }
 
     firebaseStage = 'starting';
-    setFirebaseStatus('جارٍ الاتصال بـ Firebase...', 'loading');
+    setFirebaseStatus('جارٍ تجهيز الخدمة...', 'loading');
 
     firebaseConnectionPromise = (async () => {
         try {
@@ -754,7 +782,7 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
             }
 
             firebaseStage = 'authentication';
-            setFirebaseStatus('جارٍ تسجيل الدخول المجهول...', 'loading');
+            setFirebaseStatus('جارٍ تهيئة الجلسة...', 'loading');
             currentUser = auth.currentUser;
 
             if (!currentUser) {
@@ -771,24 +799,24 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
             }
 
             firebaseStage = 'database-connection';
-            setFirebaseStatus('تم تسجيل الدخول؛ جارٍ الاتصال بقاعدة البيانات...', 'loading');
+            setFirebaseStatus('جارٍ تجهيز التخزين...', 'loading');
             await waitForRealtimeDatabaseConnection(20000);
 
             firebaseStage = 'rules-check';
-            setFirebaseStatus('متصل؛ جارٍ التحقق من قواعد قاعدة البيانات...', 'loading');
+            setFirebaseStatus('جارٍ التحقق من الصلاحيات...', 'loading');
             await verifyDatabaseRules();
 
             firebaseConnected = true;
             firebaseStage = 'ready';
             lastFirebaseError = null;
-            setFirebaseStatus('متصل بـ Firebase', 'connected');
+            setFirebaseStatus('الخدمة جاهزة', 'connected');
             return true;
         } catch (error) {
             firebaseConnected = false;
             currentUser = auth.currentUser || null;
             lastFirebaseError = error instanceof Error ? error : createFirebaseError('', String(error));
-            console.error('[PastePro] Firebase connection failed:', error?.code || error, error);
-            console.error('[PastePro] Firebase diagnostic:', buildFirebaseDiagnostic());
+            console.error('[PastePro] Service connection failed:', error?.code || error, error);
+            console.error('[PastePro] Service diagnostic:', buildFirebaseDiagnostic());
 
             const message = firebaseErrorMessage(error);
             setFirebaseStatus(message, 'error', String(error?.code || 'unknown-error'));
@@ -808,9 +836,9 @@ async function retryFirebaseConnection() {
     try {
         await ensureUserPastesLoaded();
         loadAndUpdateStats();
-        showToast('تم الاتصال بـ Firebase بنجاح');
+        showToast('تم الاتصال بالخدمة بنجاح');
     } catch (error) {
-        console.error('[PastePro] Firebase retry initialization failed:', error);
+        console.error('[PastePro] Service retry failed:', error);
         showToast(firebaseErrorMessage(error), true);
     }
 }
@@ -999,7 +1027,7 @@ function getExpiryTimestamp(expiryType) {
     }
 }
 
-function setCreateButtonBusy(isBusy, busyLabel = 'جارٍ الحفظ في Firebase...') {
+function setCreateButtonBusy(isBusy, busyLabel = 'جارٍ إنشاء اللصقة...') {
     const button = document.getElementById('create-paste-btn');
     if (!button) return;
 
@@ -1015,13 +1043,13 @@ function setCreateButtonBusy(isBusy, busyLabel = 'جارٍ الحفظ في Fireb
 
 async function createPaste() {
     const title = document.getElementById('paste-title').value.trim() || 'لصقة بدون عنوان';
-    const content = document.getElementById('paste-content').value.trim();
+    const content = document.getElementById('paste-content').value;
     const language = document.getElementById('paste-language').value;
     const expiryType = document.getElementById('paste-expiry').value;
     const visibility = document.getElementById('paste-visibility').value;
     const burnAfterRead = document.getElementById('burn-after-read').checked;
 
-    if (!content) {
+    if (!content.trim()) {
         showToast('الرجاء إدخال محتوى اللصقة', true);
         return;
     }
@@ -1031,13 +1059,19 @@ async function createPaste() {
         return;
     }
 
-    if (content.length > 500000) {
-        showToast('المحتوى يتجاوز الحد الأقصى: 500 ألف حرف', true);
+    if (content.length > MAX_CONTENT_CHARACTERS) {
+        showToast('المحتوى يتجاوز الحد الأقصى: 8 ملايين حرف', true);
+        return;
+    }
+
+    const contentBytes = utf8Size(content);
+    if (contentBytes > MAX_CONTENT_UTF8_BYTES) {
+        showToast(`حجم المحتوى ${formatFileSize(contentBytes)}؛ الحد المسموح ${formatFileSize(MAX_CONTENT_UTF8_BYTES)}`, true);
         return;
     }
 
     if (!firebaseConnected || !currentUser) {
-        setCreateButtonBusy(true, 'جارٍ الاتصال بـ Firebase...');
+        setCreateButtonBusy(true, 'جارٍ تجهيز الخدمة...');
         const connected = await connectToFirebase({ showErrorToast: true });
         if (!connected) {
             setCreateButtonBusy(false);
@@ -1078,8 +1112,13 @@ async function createPaste() {
 
         const updatesMap = {
             [`pastes/${id}`]: newPaste,
-            [`userPastes/${currentUser.uid}/${id}`]: newPaste
+            [`userPastes/${currentUser.uid}/${id}`]: createPasteIndexRecord(newPaste)
         };
+
+        const serializedWriteBytes = utf8Size(JSON.stringify(updatesMap));
+        if (serializedWriteBytes > MAX_SERIALIZED_WRITE_BYTES) {
+            throw createFirebaseError('app/content-too-large', 'Serialized write is larger than the safe SDK request limit');
+        }
 
         await update(ref(database), updatesMap);
 
@@ -1096,7 +1135,7 @@ async function createPaste() {
         url.searchParams.delete('raw');
         window.history.pushState({}, '', url);
 
-        showToast('تم حفظ اللصقة في Firebase بنجاح');
+        showToast('تم إنشاء اللصقة بنجاح');
         await showPasteView(id, newPaste);
     } catch (error) {
         console.error('[PastePro] Creating paste failed:', error);
@@ -1111,12 +1150,20 @@ async function fetchPasteById(pasteId) {
     if (!id) return null;
 
     const cached = allPastes.find((paste) => paste.id === id);
-    if (cached) return cached;
+    if (cached && typeof cached.content === 'string' && cached.content.length > 0) return cached;
 
     try {
         const snapshot = await get(ref(database, `pastes/${id}`));
         if (!snapshot.exists()) return null;
-        return normalizePaste(snapshot.val(), id);
+
+        const fullPaste = normalizePaste(snapshot.val(), id);
+        if (fullPaste && currentUser && fullPaste.ownerUid === currentUser.uid) {
+            allPastes = sortPastesNewestFirst([
+                fullPaste,
+                ...allPastes.filter((paste) => paste.id !== id)
+            ]);
+        }
+        return fullPaste;
     } catch (error) {
         // Expired records can be denied by the supplied database rules.
         if (String(error?.code || '').includes('permission-denied')) return null;
@@ -1162,7 +1209,7 @@ async function showPasteView(pasteId, suppliedPaste = null) {
         paste = suppliedPaste || await fetchPasteById(id);
     } catch (error) {
         showToast(firebaseErrorMessage(error), true);
-        showNotFound('تعذر تحميل اللصقة من Firebase');
+        showNotFound('تعذر تحميل اللصقة');
         return;
     }
 
@@ -1219,14 +1266,19 @@ async function showPasteView(pasteId, suppliedPaste = null) {
     const preElement = document.getElementById('view-code-pre');
     preElement.querySelectorAll('.line-numbers-rows').forEach((element) => element.remove());
     codeElement.textContent = paste.content;
-    codeElement.className = `language-${languageInfo.prism}`;
 
-    window.setTimeout(() => {
-        if (window.Prism?.highlightElement) {
-            window.Prism.highlightElement(codeElement);
-        }
-        preElement.classList.add('line-numbers');
-    }, 50);
+    if (paste.content.length <= LARGE_CONTENT_HIGHLIGHT_LIMIT) {
+        codeElement.className = `language-${languageInfo.prism}`;
+        window.setTimeout(() => {
+            if (window.Prism?.highlightElement) {
+                window.Prism.highlightElement(codeElement);
+            }
+            preElement.classList.add('line-numbers');
+        }, 50);
+    } else {
+        codeElement.className = 'language-plaintext';
+        preElement.classList.remove('line-numbers');
+    }
 
     const deleteButton = document.getElementById('delete-paste-btn');
     const isOwner = Boolean(currentUser && paste.ownerUid === currentUser.uid);
@@ -1455,11 +1507,11 @@ async function deleteCurrentPaste() {
         return;
     }
 
-    if (!window.confirm('هل أنت متأكد من حذف هذه اللصقة نهائياً من Firebase؟')) return;
+    if (!window.confirm('هل أنت متأكد من حذف هذه اللصقة نهائياً؟')) return;
 
     try {
         await deletePasteById(currentPasteId, currentPaste);
-        showToast('تم حذف اللصقة من Firebase');
+        showToast('تم حذف اللصقة');
 
         const url = new URL(window.location.href);
         url.searchParams.delete('paste');
@@ -1514,6 +1566,7 @@ function showCreateView(updateUrl = true) {
     document.getElementById('paste-title').value = '';
     document.getElementById('paste-content').value = '';
     document.getElementById('burn-after-read').checked = false;
+    updateContentSizeHint();
 }
 
 function showMyPastesView() {
@@ -1606,7 +1659,7 @@ function filterMyPastes() {
 
     const filtered = allPastes.filter((paste) =>
         paste.title.toLocaleLowerCase('ar').includes(term)
-        || paste.content.toLocaleLowerCase('ar').includes(term)
+        || String(paste.content || '').toLocaleLowerCase('ar').includes(term)
         || paste.id.toLowerCase().includes(term)
     );
     renderMyPastes(filtered);
@@ -1641,12 +1694,12 @@ async function deletePasteFromList(id, eventObject) {
     const paste = allPastes.find((item) => item.id === id);
     if (!paste) return;
 
-    if (!window.confirm('حذف هذه اللصقة نهائياً من Firebase؟')) return;
+    if (!window.confirm('حذف هذه اللصقة نهائياً؟')) return;
 
     try {
         await deletePasteById(id, paste);
         renderMyPastes();
-        showToast('تم حذف اللصقة من Firebase');
+        showToast('تم حذف اللصقة');
     } catch (error) {
         console.error('[PastePro] Delete from list failed:', error);
         showToast(firebaseErrorMessage(error), true);
@@ -1773,7 +1826,7 @@ async function handleUrlParams() {
         paste = await fetchPasteById(pasteId);
     } catch (error) {
         showToast(firebaseErrorMessage(error), true);
-        showNotFound('تعذر الوصول إلى Firebase');
+        showNotFound('تعذر الوصول إلى الخدمة');
         return false;
     }
 
@@ -1852,10 +1905,19 @@ async function initializePastePro() {
     if (renderedRaw) return;
 
     const textarea = document.getElementById('paste-content');
+    let contentSizeTimer = null;
     textarea?.addEventListener('input', function resizeTextarea() {
-        this.style.height = 'auto';
-        this.style.height = `${Math.min(this.scrollHeight, 620)}px`;
+        if (this.value.length <= 200_000) {
+            this.style.height = 'auto';
+            this.style.height = `${Math.min(this.scrollHeight, 620)}px`;
+        } else {
+            this.style.height = '620px';
+        }
+
+        window.clearTimeout(contentSizeTimer);
+        contentSizeTimer = window.setTimeout(updateContentSizeHint, 120);
     });
+    updateContentSizeHint();
 
     const logo = document.querySelector('.fa-paste')?.parentElement;
     logo?.addEventListener('click', (eventObject) => {
@@ -1870,7 +1932,7 @@ async function initializePastePro() {
     window.addEventListener('online', () => {
         if (!firebaseConnected) retryFirebaseConnection();
     });
-    console.log('%c[PastePro] Firebase Realtime Database integration initialized.', 'color:#10b981');
+    console.log('%c[PastePro] Application initialized successfully.', 'color:#10b981');
 }
 
 // Inline HTML handlers need explicit exports because this is an ES module.
@@ -1889,28 +1951,18 @@ Object.assign(window, {
     deletePasteFromList,
     toggleTheme,
     retryFirebaseConnection,
-    copyFirebaseDiagnostic
 });
 
 window.PastePro = {
     showCreateView,
     showMyPastesView,
     createPaste,
-    get connectionReady() { return firebaseConnected; },
-    get currentUserId() { return currentUser?.uid || null; },
-    get lastError() {
-        return lastFirebaseError
-            ? { code: String(lastFirebaseError.code || ''), message: String(lastFirebaseError.message || '') }
-            : null;
-    },
-    retry: retryFirebaseConnection,
-    diagnostic: buildFirebaseDiagnostic,
-    copyDiagnostic: copyFirebaseDiagnostic
+    retry: retryFirebaseConnection
 };
 
 initializePastePro().catch((error) => {
     console.error('[PastePro] Fatal initialization error:', error);
-    setFirebaseStatus('فشل تشغيل التطبيق', 'error');
+    setFirebaseStatus('تعذر تشغيل التطبيق', 'error');
     showToast(firebaseErrorMessage(error), true);
 });
 
