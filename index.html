@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PastePro • لصق النصوص الاحترافي</title>
+    <title>PastePro • Firebase Realtime Database</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
@@ -148,7 +148,7 @@
                         <span class="font-bold text-3xl tracking-tighter">Paste</span>
                         <span class="font-bold text-3xl tracking-tighter text-indigo-500">Pro</span>
                     </div>
-                    <div class="hidden md:block px-2.5 py-1 bg-zinc-800 text-[10px] font-mono rounded-full text-zinc-400">v2.4</div>
+                    <div class="hidden md:block px-2.5 py-1 bg-zinc-800 text-[10px] font-mono rounded-full text-zinc-400">v2.6</div>
                 </div>
 
                 <!-- Nav Links -->
@@ -490,6 +490,7 @@ let pasteViewTemplate = '';
 let firebaseConnected = false;
 let firebaseConnectionPromise = null;
 let lastFirebaseError = null;
+let firebaseStage = 'startup';
 let loadedPastesForUid = null;
 let toastTimeout;
 
@@ -540,17 +541,25 @@ function setFirebaseStatus(message, state = 'loading', errorCode = '') {
         error: 'text-red-400'
     };
 
-    status.className = `text-xs flex items-center gap-x-2 flex-wrap ${statusClasses[state] || statusClasses.loading}`;
+    status.className = `text-xs flex items-center gap-x-2 gap-y-1 flex-wrap ${statusClasses[state] || statusClasses.loading}`;
     status.replaceChildren();
 
     const dot = document.createElement('span');
-    dot.className = 'inline-block w-2 h-2 rounded-full bg-current';
+    dot.className = 'inline-block w-2 h-2 rounded-full bg-current flex-none';
 
     const label = document.createElement('span');
     label.textContent = message;
-    if (errorCode) label.title = `Firebase: ${errorCode}`;
+    label.title = lastFirebaseError?.message || message;
 
     status.append(dot, label);
+
+    if (errorCode) {
+        const code = document.createElement('code');
+        code.className = 'px-2 py-0.5 rounded-md bg-red-950/60 border border-red-500/30 text-[10px] font-mono direction-ltr';
+        code.dir = 'ltr';
+        code.textContent = errorCode;
+        status.appendChild(code);
+    }
 
     if (state === 'error') {
         const retryButton = document.createElement('button');
@@ -559,9 +568,15 @@ function setFirebaseStatus(message, state = 'loading', errorCode = '') {
         retryButton.textContent = 'إعادة المحاولة';
         retryButton.addEventListener('click', retryFirebaseConnection);
         status.appendChild(retryButton);
+
+        const diagnosticButton = document.createElement('button');
+        diagnosticButton.type = 'button';
+        diagnosticButton.className = 'px-2.5 py-1 rounded-lg border border-zinc-500/40 text-zinc-300 hover:bg-zinc-700/40 transition-colors';
+        diagnosticButton.textContent = 'نسخ التشخيص';
+        diagnosticButton.addEventListener('click', copyFirebaseDiagnostic);
+        status.appendChild(diagnosticButton);
     }
 }
-
 function createFirebaseError(code, message) {
     const error = new Error(message);
     error.code = code;
@@ -570,42 +585,88 @@ function createFirebaseError(code, message) {
 
 function firebaseErrorMessage(error) {
     const code = String(error?.code || '');
-    const message = String(error?.message || '');
+    const message = String(error?.message || error || '');
     const loweredMessage = message.toLowerCase();
 
-    if (code === 'app/file-protocol') {
+    if (code === 'app/file-protocol'
+        || code.includes('operation-not-supported-in-this-environment')
+        || loweredMessage.includes('file://')) {
         return 'شغّل الموقع عبر http:// أو https://، وليس بفتح ملف HTML مباشرة';
     }
 
     if (code.includes('operation-not-allowed')
         || code.includes('admin-restricted-operation')
         || code.includes('configuration-not-found')) {
-        return 'فعّل Anonymous من Authentication ← Sign-in method';
+        return 'فعّل Anonymous من Authentication ← Sign-in method في مشروع pastelordtext';
     }
 
     if (code.includes('unauthorized-domain') || code.includes('app-not-authorized')) {
         return `أضف النطاق ${window.location.hostname || 'الحالي'} إلى Authentication ← Settings ← Authorized domains`;
     }
 
-    if (code.includes('invalid-api-key') || code.includes('api-key-not-valid')) {
-        return 'مفتاح Firebase غير صالح أو عليه قيود تمنع هذا النطاق';
+    if (code.includes('invalid-api-key')
+        || code.includes('api-key-not-valid')
+        || loweredMessage.includes('api key not valid')) {
+        return 'مفتاح Firebase غير صالح أو قيود Google Cloud API تمنع هذا النطاق';
     }
 
     if (code.includes('too-many-requests') || code.includes('quota-exceeded')) {
-        return 'تم تجاوز حد تسجيل الدخول مؤقتاً؛ حاول من شبكة أخرى أو بعد خفض عدد المحاولات';
+        return 'تم تجاوز حد تسجيل الدخول مؤقتاً؛ أوقف إعادة التحميل المتكرر ثم جرّب لاحقاً';
     }
 
-    if (code.includes('permission-denied') || message.includes('PERMISSION_DENIED')) {
-        return 'تم رفض العملية؛ انشر ملف database.rules.json في Realtime Database ← Rules';
+    if (code.includes('app-check') || loweredMessage.includes('app check')) {
+        return 'App Check يمنع الطلبات؛ عطّل Enforce مؤقتاً لـ Realtime Database أو أضف App Check للموقع';
     }
 
-    if (code.includes('timeout') || code.includes('network-request-failed') || loweredMessage.includes('network')) {
-        return 'تعذر الوصول إلى Firebase؛ تحقق من الإنترنت ومن أن الموقع يعمل عبر http/https';
+    if (code.includes('permission-denied') || loweredMessage.includes('permission_denied')) {
+        return 'تم رفض الوصول: انشر قواعد Realtime Database المرفقة، وتحقق من أن App Check ليس على Enforce';
     }
 
-    return `تعذر الاتصال بـ Firebase${code ? ` (${code})` : ''}`;
+    if (code.includes('timeout')
+        || code.includes('network-request-failed')
+        || code.includes('unavailable')
+        || loweredMessage.includes('network')
+        || loweredMessage.includes('client is offline')
+        || loweredMessage.includes('failed to fetch')
+        || loweredMessage.includes('load failed')
+        || loweredMessage.includes('cors')
+        || loweredMessage.includes('blocked by client')) {
+        return 'تعذر الوصول إلى خوادم Firebase؛ تحقق من الإنترنت، مانع الإعلانات، وفتح الموقع عبر http/https';
+    }
+
+    const briefMessage = message.replace(/\s+/g, ' ').trim().slice(0, 140);
+    return `تعذر الاتصال بـ Firebase${code ? ` (${code})` : ''}${briefMessage ? `: ${briefMessage}` : ''}`;
 }
 
+function buildFirebaseDiagnostic() {
+    return JSON.stringify({
+        time: new Date().toISOString(),
+        stage: firebaseStage,
+        page: window.location.href,
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        browserOnline: navigator.onLine,
+        authenticated: Boolean(auth.currentUser),
+        uidPrefix: auth.currentUser?.uid ? `${auth.currentUser.uid.slice(0, 8)}…` : null,
+        databaseURL: firebaseConfig.databaseURL,
+        error: lastFirebaseError ? {
+            code: String(lastFirebaseError.code || ''),
+            message: String(lastFirebaseError.message || lastFirebaseError || '')
+        } : null,
+        userAgent: navigator.userAgent
+    }, null, 2);
+}
+
+async function copyFirebaseDiagnostic() {
+    const diagnostic = buildFirebaseDiagnostic();
+    try {
+        await navigator.clipboard.writeText(diagnostic);
+        showToast('تم نسخ تشخيص Firebase');
+    } catch (error) {
+        window.prompt('انسخ التشخيص التالي:', diagnostic);
+    }
+}
 function withTimeout(promise, milliseconds, code) {
     let timeoutId;
     const timeoutPromise = new Promise((_, reject) => {
@@ -615,6 +676,56 @@ function withTimeout(promise, milliseconds, code) {
     });
 
     return Promise.race([promise, timeoutPromise]).finally(() => window.clearTimeout(timeoutId));
+}
+
+
+function waitForRealtimeDatabaseConnection(timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+        const connectedRef = ref(database, '.info/connected');
+        let settled = false;
+        let unsubscribe = null;
+
+        const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeoutId);
+            if (typeof unsubscribe === 'function') unsubscribe();
+            callback(value);
+        };
+
+        const timeoutId = window.setTimeout(() => {
+            finish(
+                reject,
+                createFirebaseError(
+                    'database/connection-timeout',
+                    'Realtime Database did not report .info/connected=true before the timeout'
+                )
+            );
+        }, timeoutMs);
+
+        unsubscribe = onValue(
+            connectedRef,
+            (snapshot) => {
+                if (snapshot.val() === true) finish(resolve, true);
+            },
+            (error) => finish(reject, error)
+        );
+    });
+}
+
+async function verifyDatabaseRules() {
+    if (!currentUser) {
+        throw createFirebaseError('auth/no-current-user', 'No authenticated Firebase user is available');
+    }
+
+    // This path is readable only by its owner in the supplied rules. It verifies
+    // both the Authentication token and that the intended rules were published.
+    await withTimeout(
+        get(ref(database, `userPastes/${currentUser.uid}`)),
+        12000,
+        'database/rules-check-timeout'
+    );
+    return true;
 }
 
 async function ensureUserPastesLoaded() {
@@ -633,6 +744,7 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
         firebaseConnectionPromise = null;
     }
 
+    firebaseStage = 'starting';
     setFirebaseStatus('جارٍ الاتصال بـ Firebase...', 'loading');
 
     firebaseConnectionPromise = (async () => {
@@ -641,11 +753,14 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
                 throw createFirebaseError('app/file-protocol', 'The app is running from file://');
             }
 
+            firebaseStage = 'authentication';
+            setFirebaseStatus('جارٍ تسجيل الدخول المجهول...', 'loading');
             currentUser = auth.currentUser;
+
             if (!currentUser) {
                 const credential = await withTimeout(
                     signInAnonymously(auth),
-                    15000,
+                    20000,
                     'auth/connection-timeout'
                 );
                 currentUser = credential.user;
@@ -655,25 +770,28 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
                 throw createFirebaseError('auth/no-current-user', 'Anonymous authentication returned no user');
             }
 
-            // Read a Firebase-managed metadata path to confirm the database endpoint is reachable.
-            await withTimeout(
-                get(ref(database, '.info/serverTimeOffset')),
-                10000,
-                'database/connection-timeout'
-            );
+            firebaseStage = 'database-connection';
+            setFirebaseStatus('تم تسجيل الدخول؛ جارٍ الاتصال بقاعدة البيانات...', 'loading');
+            await waitForRealtimeDatabaseConnection(20000);
+
+            firebaseStage = 'rules-check';
+            setFirebaseStatus('متصل؛ جارٍ التحقق من قواعد قاعدة البيانات...', 'loading');
+            await verifyDatabaseRules();
 
             firebaseConnected = true;
+            firebaseStage = 'ready';
             lastFirebaseError = null;
             setFirebaseStatus('متصل بـ Firebase', 'connected');
             return true;
         } catch (error) {
             firebaseConnected = false;
             currentUser = auth.currentUser || null;
-            lastFirebaseError = error;
+            lastFirebaseError = error instanceof Error ? error : createFirebaseError('', String(error));
             console.error('[PastePro] Firebase connection failed:', error?.code || error, error);
+            console.error('[PastePro] Firebase diagnostic:', buildFirebaseDiagnostic());
 
             const message = firebaseErrorMessage(error);
-            setFirebaseStatus(message, 'error', String(error?.code || ''));
+            setFirebaseStatus(message, 'error', String(error?.code || 'unknown-error'));
             if (showErrorToast) showToast(message, true);
             return false;
         } finally {
@@ -683,7 +801,6 @@ async function connectToFirebase({ showErrorToast = true, force = false } = {}) 
 
     return firebaseConnectionPromise;
 }
-
 async function retryFirebaseConnection() {
     const connected = await connectToFirebase({ showErrorToast: true, force: true });
     if (!connected) return;
@@ -1750,6 +1867,9 @@ async function initializePastePro() {
     }
 
     window.addEventListener('popstate', () => window.location.reload());
+    window.addEventListener('online', () => {
+        if (!firebaseConnected) retryFirebaseConnection();
+    });
     console.log('%c[PastePro] Firebase Realtime Database integration initialized.', 'color:#10b981');
 }
 
@@ -1768,7 +1888,8 @@ Object.assign(window, {
     copyLinkFromList,
     deletePasteFromList,
     toggleTheme,
-    retryFirebaseConnection
+    retryFirebaseConnection,
+    copyFirebaseDiagnostic
 });
 
 window.PastePro = {
@@ -1782,7 +1903,9 @@ window.PastePro = {
             ? { code: String(lastFirebaseError.code || ''), message: String(lastFirebaseError.message || '') }
             : null;
     },
-    retry: retryFirebaseConnection
+    retry: retryFirebaseConnection,
+    diagnostic: buildFirebaseDiagnostic,
+    copyDiagnostic: copyFirebaseDiagnostic
 };
 
 initializePastePro().catch((error) => {
