@@ -225,16 +225,17 @@
                         <h1 class="text-4xl font-bold tracking-tighter">إنشاء لصقة جديدة</h1>
                         <div class="px-3 py-1 text-xs font-semibold bg-indigo-500/10 text-indigo-400 rounded-full flex items-center gap-x-1.5">
                             <i class="fas fa-shield-alt"></i>
-                            <span>آمن ومشفر</span>
+                            <span>محفوظ سحابياً</span>
                         </div>
                     </div>
                     <p class="text-zinc-400 mt-1.5">شارك النصوص والأكواد بسرعة واحترافية</p>
                 </div>
                 
                 <div class="flex items-center gap-x-3 text-sm">
-                    <!-- Removed decorative avatars for clean professional look -->
-                    <div class="text-xs text-zinc-400">
-                        <span class="font-semibold text-white">184,291</span> لصقة اليوم
+                    <!-- No personal elements -->
+                    <div id="firebase-status" class="text-xs text-amber-400 flex items-center gap-x-2">
+                        <span class="inline-block w-2 h-2 rounded-full bg-current"></span>
+                        <span>جارٍ الاتصال بـ Firebase...</span>
                     </div>
                 </div>
             </div>
@@ -299,14 +300,14 @@
                         <div class="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
                             <label class="flex items-center gap-x-2 cursor-pointer">
                                 <input type="checkbox" id="burn-after-read" class="accent-indigo-500 w-4 h-4">
-                                <span class="text-zinc-300">حذف بعد القراءة الأولى</span>
+                                <span class="text-zinc-300">حذف بعد القراءة الأولى (تجريبي)</span>
                             </label>
                             
                             <div class="h-3 w-px bg-zinc-700 hidden sm:block"></div>
                             
                             <div class="flex items-center gap-x-2 text-xs text-zinc-400">
                                 <i class="fas fa-lock"></i>
-                                <span>مشفر من طرف العميل (محاكاة)</span>
+                                <span>النقل مشفر عبر HTTPS • المحتوى غير مشفر طرفياً</span>
                             </div>
                         </div>
                     </div>
@@ -314,7 +315,7 @@
 
                 <!-- Submit Button -->
                 <div class="mt-8 flex flex-col sm:flex-row items-center gap-4">
-                    <button onclick="createPaste()"
+                    <button id="create-paste-btn" onclick="createPaste()"
                             class="w-full sm:w-auto flex-1 sm:flex-none px-10 py-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition-all font-semibold rounded-2xl flex items-center justify-center gap-x-3 text-lg shadow-lg shadow-indigo-500/30">
                         <i class="fas fa-paper-plane"></i>
                         <span>إنشاء اللصقة</span>
@@ -329,7 +330,7 @@
             </div>
             
             <div class="text-center mt-6 text-xs text-zinc-500">
-                يتم حفظ اللصقات محلياً في متصفحك • لا يتم إرسال البيانات لأي خادم
+                يتم حفظ اللصقات في Firebase Realtime Database • الروابط تعمل من أي جهاز
             </div>
         </div>
 
@@ -366,7 +367,7 @@
                         
                         <div class="h-8 w-px bg-zinc-700 mx-1 hidden md:block"></div>
                         
-                        <button onclick="deleteCurrentPaste()" 
+                        <button id="delete-paste-btn" onclick="deleteCurrentPaste()" 
                                 class="flex items-center gap-x-2 px-5 py-2.5 text-red-400 hover:bg-red-950/50 transition-colors text-sm font-medium rounded-2xl">
                             <i class="fas fa-trash"></i>
                             <span class="hidden sm:inline">حذف</span>
@@ -408,7 +409,7 @@
             <div class="flex items-center justify-between mb-6">
                 <div>
                     <h2 class="text-3xl font-bold tracking-tight">لصقاتي</h2>
-                    <p class="text-zinc-400 text-sm mt-1">جميع اللصقات المحفوظة في هذا المتصفح</p>
+                    <p class="text-zinc-400 text-sm mt-1">لصقاتك المرتبطة بالهوية المجهولة المحفوظة في هذا المتصفح</p>
                 </div>
                 
                 <div class="flex items-center gap-x-3">
@@ -447,715 +448,1098 @@
         <span id="toast-text" class="text-sm font-medium"></span>
     </div>
 
-    <script>
-        // Tailwind script
-        function initializeTailwind() {
-            document.documentElement.style.setProperty('--accent', '#6366f1');
-        }
+    <script type="module">
+import { initializeApp as initializeFirebaseApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import {
+    getAuth,
+    onAuthStateChanged,
+    signInAnonymously
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
+import {
+    getDatabase,
+    get,
+    onValue,
+    ref,
+    runTransaction,
+    update
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
 
-        // Data
-        let currentPasteId = null;
-        let allPastes = [];
+// Firebase configuration supplied for the PasteLordText project.
+const firebaseConfig = {
+    apiKey: "AIzaSyDKaKinHMJhnDrs2igzoaLMP7638xZRYnA",
+    authDomain: "pastelordtext.firebaseapp.com",
+    databaseURL: "https://pastelordtext-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "pastelordtext",
+    storageBucket: "pastelordtext.firebasestorage.app",
+    messagingSenderId: "203928086890",
+    appId: "1:203928086890:web:4309a58bcc622e01e65d13"
+};
 
-        const LANGUAGES = [
-            { value: 'plaintext', label: 'نص عادي', prism: 'plaintext', ext: 'txt' },
-            { value: 'javascript', label: 'JavaScript', prism: 'javascript', ext: 'js' },
-            { value: 'typescript', label: 'TypeScript', prism: 'typescript', ext: 'ts' },
-            { value: 'python', label: 'Python', prism: 'python', ext: 'py' },
-            { value: 'html', label: 'HTML', prism: 'markup', ext: 'html' },
-            { value: 'css', label: 'CSS', prism: 'css', ext: 'css' },
-            { value: 'json', label: 'JSON', prism: 'json', ext: 'json' },
-            { value: 'markdown', label: 'Markdown', prism: 'markdown', ext: 'md' },
-            { value: 'sql', label: 'SQL', prism: 'sql', ext: 'sql' },
-            { value: 'bash', label: 'Bash / Shell', prism: 'bash', ext: 'sh' },
-            { value: 'java', label: 'Java', prism: 'java', ext: 'java' },
-            { value: 'php', label: 'PHP', prism: 'php', ext: 'php' },
-            { value: 'go', label: 'Go', prism: 'go', ext: 'go' },
-            { value: 'rust', label: 'Rust', prism: 'rust', ext: 'rs' },
-            { value: 'c', label: 'C', prism: 'c', ext: 'c' },
-            { value: 'cpp', label: 'C++', prism: 'cpp', ext: 'cpp' },
-        ];
+// The alias prevents a name collision with the site's own initializer.
+const firebaseApp = initializeFirebaseApp(firebaseConfig);
+const database = getDatabase(firebaseApp);
+const auth = getAuth(firebaseApp);
 
-        const EXPIRY_OPTIONS = [
-            { value: 'never', label: 'لا ينتهي أبداً' },
-            { value: '10min', label: '10 دقائق' },
-            { value: '1hour', label: 'ساعة واحدة' },
-            { value: '1day', label: 'يوم واحد' },
-            { value: '1week', label: 'أسبوع واحد' },
-            { value: '1month', label: 'شهر واحد' },
-        ];
+// Application state.
+let currentUser = null;
+let currentPasteId = null;
+let currentPaste = null;
+let allPastes = [];
+let unsubscribeMyPastes = null;
+let pasteViewTemplate = '';
+let firebaseConnected = false;
+let firebaseConnectionPromise = null;
+let lastFirebaseError = null;
+let loadedPastesForUid = null;
+let toastTimeout;
 
-        const VISIBILITY_OPTIONS = [
-            { value: 'public', label: 'عام (مرئي للجميع)' },
-            { value: 'unlisted', label: 'غير مدرج (رابط فقط)' },
-        ];
+const LANGUAGES = [
+    { value: 'plaintext', label: 'نص عادي', prism: 'plaintext', ext: 'txt' },
+    { value: 'javascript', label: 'JavaScript', prism: 'javascript', ext: 'js' },
+    { value: 'typescript', label: 'TypeScript', prism: 'typescript', ext: 'ts' },
+    { value: 'python', label: 'Python', prism: 'python', ext: 'py' },
+    { value: 'html', label: 'HTML', prism: 'markup', ext: 'html' },
+    { value: 'css', label: 'CSS', prism: 'css', ext: 'css' },
+    { value: 'json', label: 'JSON', prism: 'json', ext: 'json' },
+    { value: 'markdown', label: 'Markdown', prism: 'markdown', ext: 'md' },
+    { value: 'sql', label: 'SQL', prism: 'sql', ext: 'sql' },
+    { value: 'bash', label: 'Bash / Shell', prism: 'bash', ext: 'sh' },
+    { value: 'java', label: 'Java', prism: 'java', ext: 'java' },
+    { value: 'php', label: 'PHP', prism: 'php', ext: 'php' },
+    { value: 'go', label: 'Go', prism: 'go', ext: 'go' },
+    { value: 'rust', label: 'Rust', prism: 'rust', ext: 'rs' },
+    { value: 'c', label: 'C', prism: 'c', ext: 'c' },
+    { value: 'cpp', label: 'C++', prism: 'cpp', ext: 'cpp' },
+];
 
-        // Load pastes from localStorage
-        function loadPastes() {
-            const saved = localStorage.getItem('pastepro_pastes');
-            if (saved) {
-                allPastes = JSON.parse(saved);
-            } else {
-                // Seed with demo pastes
-                allPastes = [
-                    {
-                        id: "DEMO01",
-                        title: "مثال: خوارزمية البحث الثنائي",
-                        content: `function binarySearch(arr, target) {
-  let left = 0;
-  let right = arr.length - 1;
+const EXPIRY_OPTIONS = [
+    { value: 'never', label: 'لا ينتهي أبداً' },
+    { value: '10min', label: '10 دقائق' },
+    { value: '1hour', label: 'ساعة واحدة' },
+    { value: '1day', label: 'يوم واحد' },
+    { value: '1week', label: 'أسبوع واحد' },
+    { value: '1month', label: 'شهر واحد' },
+];
 
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    if (arr[mid] === target) return mid;
-    if (arr[mid] < target) left = mid + 1;
-    else right = mid - 1;
-  }
-  return -1;
-}`,
-                        language: "javascript",
-                        visibility: "public",
-                        expiry: "never",
-                        created: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-                        burnAfterRead: false
-                    },
-                    {
-                        id: "DEMO02",
-                        title: "سكريبت بايثون لتحليل البيانات",
-                        content: `import pandas as pd
-import matplotlib.pyplot as plt
+const VISIBILITY_OPTIONS = [
+    { value: 'public', label: 'عام (مرئي للجميع)' },
+    { value: 'unlisted', label: 'غير مدرج (رابط فقط)' },
+];
 
-df = pd.read_csv('data.csv')
-print(df.head())
+function initializeTailwind() {
+    document.documentElement.style.setProperty('--accent', '#6366f1');
+}
 
-# رسم بياني
-df['sales'].plot(kind='bar')
-plt.title('المبيعات الشهرية')
-plt.show()`,
-                        language: "python",
-                        visibility: "unlisted",
-                        expiry: "1week",
-                        created: new Date(Date.now() - 1000 * 60 * 60 * 27).toISOString(),
-                        burnAfterRead: false
-                    },
-                    {
-                        id: "DEMO03",
-                        title: "نص ترحيبي بالعربية",
-                        content: `مرحباً بكم في PastePro!
+function setFirebaseStatus(message, state = 'loading', errorCode = '') {
+    const status = document.getElementById('firebase-status');
+    if (!status) return;
 
-هذه منصة احترافية لمشاركة النصوص والأكواد البرمجية بسرعة وأمان.
+    const statusClasses = {
+        loading: 'text-amber-400',
+        connected: 'text-emerald-400',
+        error: 'text-red-400'
+    };
 
-يمكنك:
-• إنشاء لصقات عامة أو غير مدرجة
-• تحديد تاريخ انتهاء الصلاحية
-• مشاركة الروابط بسهولة
-• نسخ وتحميل المحتوى بنقرة واحدة
+    status.className = `text-xs flex items-center gap-x-2 flex-wrap ${statusClasses[state] || statusClasses.loading}`;
+    status.replaceChildren();
 
-نتمنى لك تجربة ممتعة!`,
-                        language: "plaintext",
-                        visibility: "public",
-                        expiry: "never",
-                        created: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-                        burnAfterRead: false
-                    }
-                ];
-                savePastes();
-            }
-        }
+    const dot = document.createElement('span');
+    dot.className = 'inline-block w-2 h-2 rounded-full bg-current';
 
-        function savePastes() {
-            localStorage.setItem('pastepro_pastes', JSON.stringify(allPastes));
-        }
+    const label = document.createElement('span');
+    label.textContent = message;
+    if (errorCode) label.title = `Firebase: ${errorCode}`;
 
-        // Populate selects
-        function populateSelects() {
-            // Language
-            const langSelect = document.getElementById('paste-language');
-            langSelect.innerHTML = '';
-            LANGUAGES.forEach(lang => {
-                const opt = document.createElement('option');
-                opt.value = lang.value;
-                opt.textContent = lang.label;
-                langSelect.appendChild(opt);
-            });
-            langSelect.value = 'javascript';
+    status.append(dot, label);
 
-            // Expiry
-            const expSelect = document.getElementById('paste-expiry');
-            expSelect.innerHTML = '';
-            EXPIRY_OPTIONS.forEach(opt => {
-                const option = document.createElement('option');
-                option.value = opt.value;
-                option.textContent = opt.label;
-                expSelect.appendChild(option);
-            });
-            expSelect.value = 'never';
+    if (state === 'error') {
+        const retryButton = document.createElement('button');
+        retryButton.type = 'button';
+        retryButton.className = 'px-2.5 py-1 rounded-lg border border-red-500/40 hover:bg-red-500/10 transition-colors';
+        retryButton.textContent = 'إعادة المحاولة';
+        retryButton.addEventListener('click', retryFirebaseConnection);
+        status.appendChild(retryButton);
+    }
+}
 
-            // Visibility
-            const visSelect = document.getElementById('paste-visibility');
-            visSelect.innerHTML = '';
-            VISIBILITY_OPTIONS.forEach(opt => {
-                const option = document.createElement('option');
-                option.value = opt.value;
-                option.textContent = opt.label;
-                visSelect.appendChild(option);
-            });
-            visSelect.value = 'public';
-        }
+function createFirebaseError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
 
-        // Generate unique ID
-        function generateId() {
-            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-            let id = '';
-            for (let i = 0; i < 7; i++) {
-                id += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            // Make sure it's unique
-            while (allPastes.some(p => p.id === id)) {
-                id = generateId();
-            }
-            return id;
-        }
+function firebaseErrorMessage(error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+    const loweredMessage = message.toLowerCase();
 
-        // Calculate expiry timestamp
-        function getExpiryTimestamp(expiryType) {
-            if (expiryType === 'never') return null;
-            
-            const now = Date.now();
-            switch (expiryType) {
-                case '10min': return now + (10 * 60 * 1000);
-                case '1hour': return now + (60 * 60 * 1000);
-                case '1day': return now + (24 * 60 * 60 * 1000);
-                case '1week': return now + (7 * 24 * 60 * 60 * 1000);
-                case '1month': return now + (30 * 24 * 60 * 60 * 1000);
-                default: return null;
-            }
-        }
+    if (code === 'app/file-protocol') {
+        return 'شغّل الموقع عبر http:// أو https://، وليس بفتح ملف HTML مباشرة';
+    }
 
-        // Create new paste
-        function createPaste() {
-            const title = document.getElementById('paste-title').value.trim() || 'لصقة بدون عنوان';
-            const content = document.getElementById('paste-content').value.trim();
-            const language = document.getElementById('paste-language').value;
-            const expiryType = document.getElementById('paste-expiry').value;
-            const visibility = document.getElementById('paste-visibility').value;
-            const burnAfterRead = document.getElementById('burn-after-read').checked;
+    if (code.includes('operation-not-allowed')
+        || code.includes('admin-restricted-operation')
+        || code.includes('configuration-not-found')) {
+        return 'فعّل Anonymous من Authentication ← Sign-in method';
+    }
 
-            if (!content) {
-                showToast('الرجاء إدخال محتوى اللصقة', true);
-                return;
+    if (code.includes('unauthorized-domain') || code.includes('app-not-authorized')) {
+        return `أضف النطاق ${window.location.hostname || 'الحالي'} إلى Authentication ← Settings ← Authorized domains`;
+    }
+
+    if (code.includes('invalid-api-key') || code.includes('api-key-not-valid')) {
+        return 'مفتاح Firebase غير صالح أو عليه قيود تمنع هذا النطاق';
+    }
+
+    if (code.includes('too-many-requests') || code.includes('quota-exceeded')) {
+        return 'تم تجاوز حد تسجيل الدخول مؤقتاً؛ حاول من شبكة أخرى أو بعد خفض عدد المحاولات';
+    }
+
+    if (code.includes('permission-denied') || message.includes('PERMISSION_DENIED')) {
+        return 'تم رفض العملية؛ انشر ملف database.rules.json في Realtime Database ← Rules';
+    }
+
+    if (code.includes('timeout') || code.includes('network-request-failed') || loweredMessage.includes('network')) {
+        return 'تعذر الوصول إلى Firebase؛ تحقق من الإنترنت ومن أن الموقع يعمل عبر http/https';
+    }
+
+    return `تعذر الاتصال بـ Firebase${code ? ` (${code})` : ''}`;
+}
+
+function withTimeout(promise, milliseconds, code) {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+            reject(createFirebaseError(code, 'Firebase request timed out'));
+        }, milliseconds);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => window.clearTimeout(timeoutId));
+}
+
+async function ensureUserPastesLoaded() {
+    if (!currentUser) return;
+    if (loadedPastesForUid === currentUser.uid && unsubscribeMyPastes) return;
+    await loadPastes();
+    loadedPastesForUid = currentUser.uid;
+}
+
+async function connectToFirebase({ showErrorToast = true, force = false } = {}) {
+    if (!force && firebaseConnected && currentUser) return true;
+    if (!force && firebaseConnectionPromise) return firebaseConnectionPromise;
+
+    if (force) {
+        firebaseConnected = false;
+        firebaseConnectionPromise = null;
+    }
+
+    setFirebaseStatus('جارٍ الاتصال بـ Firebase...', 'loading');
+
+    firebaseConnectionPromise = (async () => {
+        try {
+            if (window.location.protocol === 'file:') {
+                throw createFirebaseError('app/file-protocol', 'The app is running from file://');
             }
 
-            const id = generateId();
-            const created = new Date().toISOString();
-            const expiresAt = getExpiryTimestamp(expiryType);
-
-            const newPaste = {
-                id,
-                title,
-                content,
-                language,
-                visibility,
-                expiry: expiryType,
-                expiresAt: expiresAt,
-                created,
-                burnAfterRead
-            };
-
-            allPastes.unshift(newPaste);
-            savePastes();
-
-            // Update URL and show view
-            const url = new URL(window.location);
-            url.searchParams.set('paste', id);
-            window.history.pushState({}, '', url);
-
-            showToast('تم إنشاء اللصقة بنجاح!');
-            
-            // Show the view
-            setTimeout(() => {
-                showPasteView(id);
-            }, 600);
-        }
-
-        // Show paste view
-        function showPasteView(pasteId) {
-            const paste = allPastes.find(p => p.id === pasteId);
-            if (!paste) {
-                showNotFound();
-                return;
+            currentUser = auth.currentUser;
+            if (!currentUser) {
+                const credential = await withTimeout(
+                    signInAnonymously(auth),
+                    15000,
+                    'auth/connection-timeout'
+                );
+                currentUser = credential.user;
             }
 
-            currentPasteId = pasteId;
+            if (!currentUser) {
+                throw createFirebaseError('auth/no-current-user', 'Anonymous authentication returned no user');
+            }
 
-            // Count this as a content view (global stat)
-            updateStat('stat-views', 'views', true);
+            // Read a Firebase-managed metadata path to confirm the database endpoint is reachable.
+            await withTimeout(
+                get(ref(database, '.info/serverTimeOffset')),
+                10000,
+                'database/connection-timeout'
+            );
 
-            // Check if expired
-            const isExpired = paste.expiresAt && Date.now() > paste.expiresAt;
+            firebaseConnected = true;
+            lastFirebaseError = null;
+            setFirebaseStatus('متصل بـ Firebase', 'connected');
+            return true;
+        } catch (error) {
+            firebaseConnected = false;
+            currentUser = auth.currentUser || null;
+            lastFirebaseError = error;
+            console.error('[PastePro] Firebase connection failed:', error?.code || error, error);
 
-            // Hide other views
-            document.getElementById('create-view').classList.add('hidden');
-            document.getElementById('mypastes-view').classList.add('hidden');
-            const viewDiv = document.getElementById('view-view');
-            viewDiv.classList.remove('hidden');
-            viewDiv.classList.add('fade-in');
+            const message = firebaseErrorMessage(error);
+            setFirebaseStatus(message, 'error', String(error?.code || ''));
+            if (showErrorToast) showToast(message, true);
+            return false;
+        } finally {
+            firebaseConnectionPromise = null;
+        }
+    })();
 
-            // Fill data
-            document.getElementById('view-title').innerHTML = paste.title;
-            document.getElementById('view-id').innerHTML = `#${paste.id}`;
+    return firebaseConnectionPromise;
+}
 
-            // Meta
-            const metaContainer = document.getElementById('view-meta');
-            metaContainer.innerHTML = `
-                <div class="flex items-center gap-x-1.5">
-                    <i class="fas fa-user text-xs"></i>
-                    <span>مستخدم</span>
-                </div>
-                <div class="flex items-center gap-x-1.5">
-                    <i class="fas fa-globe text-xs"></i>
-                    <span>${paste.visibility === 'public' ? 'عام' : 'غير مدرج'}</span>
-                </div>
-            `;
+async function retryFirebaseConnection() {
+    const connected = await connectToFirebase({ showErrorToast: true, force: true });
+    if (!connected) return;
 
-            // Language badge
-            const langInfo = LANGUAGES.find(l => l.value === paste.language) || LANGUAGES[0];
-            document.getElementById('view-language-badge').innerHTML = `
-                <i class="fas fa-code text-indigo-400"></i>
-                <span>${langInfo.label}</span>
-            `;
+    try {
+        await ensureUserPastesLoaded();
+        loadAndUpdateStats();
+        showToast('تم الاتصال بـ Firebase بنجاح');
+    } catch (error) {
+        console.error('[PastePro] Firebase retry initialization failed:', error);
+        showToast(firebaseErrorMessage(error), true);
+    }
+}
 
-            // Expiry info
-            const expiryEl = document.getElementById('view-expiry-info');
-            if (paste.expiresAt) {
-                const remaining = paste.expiresAt - Date.now();
-                if (remaining > 0) {
-                    expiryEl.innerHTML = `<i class="fas fa-clock mr-1"></i> ينتهي خلال ${formatRemaining(remaining)}`;
-                    expiryEl.className = 'text-xs text-amber-400 flex items-center gap-x-1';
-                } else {
-                    expiryEl.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> منتهية الصلاحية`;
-                    expiryEl.className = 'text-xs text-red-400 flex items-center gap-x-1';
+function populateSelects() {
+    const langSelect = document.getElementById('paste-language');
+    langSelect.replaceChildren();
+    LANGUAGES.forEach((lang) => {
+        const option = document.createElement('option');
+        option.value = lang.value;
+        option.textContent = lang.label;
+        langSelect.appendChild(option);
+    });
+    langSelect.value = 'javascript';
+
+    const expirySelect = document.getElementById('paste-expiry');
+    expirySelect.replaceChildren();
+    EXPIRY_OPTIONS.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        expirySelect.appendChild(option);
+    });
+    expirySelect.value = 'never';
+
+    const visibilitySelect = document.getElementById('paste-visibility');
+    visibilitySelect.replaceChildren();
+    VISIBILITY_OPTIONS.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        visibilitySelect.appendChild(option);
+    });
+    visibilitySelect.value = 'public';
+}
+
+function normalizePasteId(value) {
+    const id = String(value || '').trim().toUpperCase();
+    return /^[A-HJ-NP-Z2-9]{7}$/.test(id) ? id : null;
+}
+
+function normalizePaste(rawPaste, fallbackId = '') {
+    if (!rawPaste || typeof rawPaste !== 'object') return null;
+
+    const id = normalizePasteId(rawPaste.id || fallbackId);
+    if (!id) return null;
+
+    const createdAtFromIso = Date.parse(String(rawPaste.created || ''));
+    const createdAt = Number(rawPaste.createdAt) || (Number.isFinite(createdAtFromIso) ? createdAtFromIso : Date.now());
+    const expiresAtValue = Number(rawPaste.expiresAt);
+
+    return {
+        id,
+        title: String(rawPaste.title || 'لصقة بدون عنوان').slice(0, 200),
+        content: String(rawPaste.content || ''),
+        language: LANGUAGES.some((lang) => lang.value === rawPaste.language) ? rawPaste.language : 'plaintext',
+        visibility: rawPaste.visibility === 'unlisted' ? 'unlisted' : 'public',
+        expiry: EXPIRY_OPTIONS.some((item) => item.value === rawPaste.expiry) ? rawPaste.expiry : 'never',
+        expiresAt: Number.isFinite(expiresAtValue) && expiresAtValue > 0 ? expiresAtValue : null,
+        created: String(rawPaste.created || new Date(createdAt).toISOString()),
+        createdAt,
+        burnAfterRead: Boolean(rawPaste.burnAfterRead),
+        ownerUid: String(rawPaste.ownerUid || '')
+    };
+}
+
+function isPasteExpired(paste) {
+    return Boolean(paste?.expiresAt && Date.now() > paste.expiresAt);
+}
+
+function sortPastesNewestFirst(pastes) {
+    return [...pastes].sort((a, b) => (b.createdAt || Date.parse(b.created)) - (a.createdAt || Date.parse(a.created)));
+}
+
+function applyMyPastesSnapshot(snapshot) {
+    const value = snapshot.val() || {};
+    allPastes = sortPastesNewestFirst(
+        Object.entries(value)
+            .map(([id, paste]) => normalizePaste(paste, id))
+            .filter(Boolean)
+    );
+
+    const myPastesView = document.getElementById('mypastes-view');
+    if (myPastesView && !myPastesView.classList.contains('hidden')) {
+        renderMyPastes();
+    }
+}
+
+async function loadPastes() {
+    if (!currentUser) {
+        allPastes = [];
+        loadedPastesForUid = null;
+        return;
+    }
+
+    if (unsubscribeMyPastes) {
+        unsubscribeMyPastes();
+        unsubscribeMyPastes = null;
+    }
+
+    await new Promise((resolve, reject) => {
+        let firstSnapshot = true;
+        const userPastesRef = ref(database, `userPastes/${currentUser.uid}`);
+
+        unsubscribeMyPastes = onValue(
+            userPastesRef,
+            (snapshot) => {
+                applyMyPastesSnapshot(snapshot);
+                if (firstSnapshot) {
+                    firstSnapshot = false;
+                    resolve();
                 }
-            } else {
-                expiryEl.innerHTML = `<i class="fas fa-infinity mr-1"></i> لا ينتهي`;
-                expiryEl.className = 'text-xs text-emerald-400 flex items-center gap-x-1';
-            }
-
-            // Created time
-            document.getElementById('view-created').innerHTML = timeAgo(new Date(paste.created));
-
-            // Code content
-            const codeEl = document.getElementById('view-code');
-            const preEl = document.getElementById('view-code-pre');
-
-            codeEl.textContent = paste.content;
-            codeEl.className = `language-${langInfo.prism}`;
-
-            // Apply Prism
-            setTimeout(() => {
-                Prism.highlightElement(codeEl);
-                
-                // Add line numbers manually if needed
-                if (!preEl.classList.contains('line-numbers')) {
-                    preEl.classList.add('line-numbers');
+            },
+            (error) => {
+                console.error('[PastePro] Could not load user pastes:', error);
+                if (firstSnapshot) {
+                    firstSnapshot = false;
+                    reject(error);
                 }
-            }, 50);
-
-            // Handle expired state
-            if (isExpired) {
-                const banner = document.createElement('div');
-                banner.className = 'bg-red-950/60 border border-red-900 text-red-300 px-5 py-3 text-sm flex items-center gap-x-3 mx-6 mt-4 rounded-2xl';
-                banner.innerHTML = `
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <span>هذه اللصقة منتهية الصلاحية. قد يتم حذفها قريباً.</span>
-                `;
-                preEl.parentNode.insertBefore(banner, preEl);
             }
+        );
+    });
 
-            // Burn after read simulation (if enabled)
-            if (paste.burnAfterRead) {
-                setTimeout(() => {
-                    showToast('تم تفعيل خاصية الحذف بعد القراءة (محاكاة)');
-                }, 1200);
-            }
+    loadedPastesForUid = currentUser.uid;
+    await cleanupExpiredOwnedPastes();
+}
+
+async function cleanupExpiredOwnedPastes() {
+    if (!currentUser) return;
+
+    const expired = allPastes.filter(isPasteExpired);
+    if (expired.length === 0) return;
+
+    const updatesMap = {};
+    expired.forEach((paste) => {
+        updatesMap[`pastes/${paste.id}`] = null;
+        updatesMap[`userPastes/${currentUser.uid}/${paste.id}`] = null;
+    });
+
+    try {
+        await update(ref(database), updatesMap);
+        allPastes = allPastes.filter((paste) => !isPasteExpired(paste));
+    } catch (error) {
+        console.warn('[PastePro] Expired paste cleanup failed:', error);
+    }
+}
+
+function generateCandidateId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id = '';
+    for (let index = 0; index < 7; index += 1) {
+        id += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return id;
+}
+
+async function generateUniqueId() {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+        const id = generateCandidateId();
+        if (allPastes.some((paste) => paste.id === id)) continue;
+
+        try {
+            const snapshot = await get(ref(database, `pastes/${id}`));
+            if (!snapshot.exists()) return id;
+        } catch (error) {
+            // An expired record can be unreadable by design; treat that ID as occupied.
+            if (String(error?.code || '').includes('permission-denied')) continue;
+            throw error;
+        }
+    }
+
+    throw new Error('Could not generate a unique paste ID');
+}
+
+function getExpiryTimestamp(expiryType) {
+    if (expiryType === 'never') return null;
+
+    const now = Date.now();
+    switch (expiryType) {
+        case '10min': return now + (10 * 60 * 1000);
+        case '1hour': return now + (60 * 60 * 1000);
+        case '1day': return now + (24 * 60 * 60 * 1000);
+        case '1week': return now + (7 * 24 * 60 * 60 * 1000);
+        case '1month': return now + (30 * 24 * 60 * 60 * 1000);
+        default: return null;
+    }
+}
+
+function setCreateButtonBusy(isBusy, busyLabel = 'جارٍ الحفظ في Firebase...') {
+    const button = document.getElementById('create-paste-btn');
+    if (!button) return;
+
+    button.disabled = isBusy;
+    button.classList.toggle('opacity-60', isBusy);
+    button.classList.toggle('cursor-not-allowed', isBusy);
+
+    const label = button.querySelector('span');
+    const icon = button.querySelector('i');
+    if (label) label.textContent = isBusy ? busyLabel : 'إنشاء اللصقة';
+    if (icon) icon.className = isBusy ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane';
+}
+
+async function createPaste() {
+    const title = document.getElementById('paste-title').value.trim() || 'لصقة بدون عنوان';
+    const content = document.getElementById('paste-content').value.trim();
+    const language = document.getElementById('paste-language').value;
+    const expiryType = document.getElementById('paste-expiry').value;
+    const visibility = document.getElementById('paste-visibility').value;
+    const burnAfterRead = document.getElementById('burn-after-read').checked;
+
+    if (!content) {
+        showToast('الرجاء إدخال محتوى اللصقة', true);
+        return;
+    }
+
+    if (title.length > 200) {
+        showToast('العنوان يجب ألا يتجاوز 200 حرف', true);
+        return;
+    }
+
+    if (content.length > 500000) {
+        showToast('المحتوى يتجاوز الحد الأقصى: 500 ألف حرف', true);
+        return;
+    }
+
+    if (!firebaseConnected || !currentUser) {
+        setCreateButtonBusy(true, 'جارٍ الاتصال بـ Firebase...');
+        const connected = await connectToFirebase({ showErrorToast: true });
+        if (!connected) {
+            setCreateButtonBusy(false);
+            return;
         }
 
-        function formatRemaining(ms) {
-            const minutes = Math.floor(ms / 60000);
-            if (minutes < 60) return `${minutes} دقيقة`;
-            const hours = Math.floor(minutes / 60);
-            if (hours < 24) return `${hours} ساعة`;
-            const days = Math.floor(hours / 24);
-            return `${days} يوم`;
+        try {
+            await ensureUserPastesLoaded();
+        } catch (error) {
+            console.error('[PastePro] Could not load user pastes after reconnect:', error);
+            showToast(firebaseErrorMessage(error), true);
+            setCreateButtonBusy(false);
+            return;
+        }
+    }
+
+    setCreateButtonBusy(true);
+
+    try {
+        const id = await generateUniqueId();
+        const createdAt = Date.now();
+        const expiresAt = getExpiryTimestamp(expiryType);
+
+        const newPaste = {
+            id,
+            title,
+            content,
+            language,
+            visibility,
+            expiry: expiryType,
+            created: new Date(createdAt).toISOString(),
+            createdAt,
+            burnAfterRead,
+            ownerUid: currentUser.uid
+        };
+
+        if (expiresAt) newPaste.expiresAt = expiresAt;
+
+        const updatesMap = {
+            [`pastes/${id}`]: newPaste,
+            [`userPastes/${currentUser.uid}/${id}`]: newPaste
+        };
+
+        await update(ref(database), updatesMap);
+
+        allPastes = sortPastesNewestFirst([
+            newPaste,
+            ...allPastes.filter((paste) => paste.id !== id)
+        ]);
+
+        currentPaste = newPaste;
+        currentPasteId = id;
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('paste', id);
+        url.searchParams.delete('raw');
+        window.history.pushState({}, '', url);
+
+        showToast('تم حفظ اللصقة في Firebase بنجاح');
+        await showPasteView(id, newPaste);
+    } catch (error) {
+        console.error('[PastePro] Creating paste failed:', error);
+        showToast(firebaseErrorMessage(error), true);
+    } finally {
+        setCreateButtonBusy(false);
+    }
+}
+
+async function fetchPasteById(pasteId) {
+    const id = normalizePasteId(pasteId);
+    if (!id) return null;
+
+    const cached = allPastes.find((paste) => paste.id === id);
+    if (cached) return cached;
+
+    try {
+        const snapshot = await get(ref(database, `pastes/${id}`));
+        if (!snapshot.exists()) return null;
+        return normalizePaste(snapshot.val(), id);
+    } catch (error) {
+        // Expired records can be denied by the supplied database rules.
+        if (String(error?.code || '').includes('permission-denied')) return null;
+        console.error('[PastePro] Reading paste failed:', error);
+        throw error;
+    }
+}
+
+function restorePasteViewStructure() {
+    const view = document.getElementById('view-view');
+    if (!view) return;
+
+    if (!document.getElementById('view-title') && pasteViewTemplate) {
+        view.innerHTML = pasteViewTemplate;
+    }
+}
+
+function showPasteLoading() {
+    restorePasteViewStructure();
+    document.getElementById('create-view')?.classList.add('hidden');
+    document.getElementById('mypastes-view')?.classList.add('hidden');
+
+    const view = document.getElementById('view-view');
+    view?.classList.remove('hidden');
+
+    const title = document.getElementById('view-title');
+    const code = document.getElementById('view-code');
+    if (title) title.textContent = 'جارٍ تحميل اللصقة...';
+    if (code) code.textContent = '';
+}
+
+async function showPasteView(pasteId, suppliedPaste = null) {
+    const id = normalizePasteId(pasteId);
+    if (!id) {
+        showNotFound();
+        return;
+    }
+
+    showPasteLoading();
+
+    let paste;
+    try {
+        paste = suppliedPaste || await fetchPasteById(id);
+    } catch (error) {
+        showToast(firebaseErrorMessage(error), true);
+        showNotFound('تعذر تحميل اللصقة من Firebase');
+        return;
+    }
+
+    if (!paste || isPasteExpired(paste)) {
+        showNotFound('قد تكون اللصقة منتهية الصلاحية أو محذوفة');
+        return;
+    }
+
+    restorePasteViewStructure();
+    currentPasteId = id;
+    currentPaste = paste;
+
+    document.getElementById('create-view').classList.add('hidden');
+    document.getElementById('mypastes-view').classList.add('hidden');
+    const view = document.getElementById('view-view');
+    view.classList.remove('hidden');
+    view.classList.add('fade-in');
+
+    document.getElementById('view-title').textContent = paste.title;
+    document.getElementById('view-id').textContent = `#${paste.id}`;
+
+    const metaContainer = document.getElementById('view-meta');
+    metaContainer.innerHTML = `
+        <div class="flex items-center gap-x-1.5">
+            <i class="fas fa-user text-xs"></i>
+            <span>مستخدم مجهول</span>
+        </div>
+        <div class="flex items-center gap-x-1.5">
+            <i class="fas fa-globe text-xs"></i>
+            <span>${paste.visibility === 'public' ? 'عام' : 'غير مدرج'}</span>
+        </div>
+    `;
+
+    const languageInfo = LANGUAGES.find((item) => item.value === paste.language) || LANGUAGES[0];
+    const languageBadge = document.getElementById('view-language-badge');
+    languageBadge.innerHTML = '<i class="fas fa-code text-indigo-400"></i>';
+    const languageLabel = document.createElement('span');
+    languageLabel.textContent = languageInfo.label;
+    languageBadge.appendChild(languageLabel);
+
+    const expiryElement = document.getElementById('view-expiry-info');
+    if (paste.expiresAt) {
+        expiryElement.innerHTML = '<i class="fas fa-clock mr-1"></i>';
+        expiryElement.append(` ينتهي خلال ${formatRemaining(paste.expiresAt - Date.now())}`);
+        expiryElement.className = 'text-xs text-amber-400 flex items-center gap-x-1';
+    } else {
+        expiryElement.innerHTML = '<i class="fas fa-infinity mr-1"></i><span>لا ينتهي</span>';
+        expiryElement.className = 'text-xs text-emerald-400 flex items-center gap-x-1';
+    }
+
+    document.getElementById('view-created').textContent = timeAgo(new Date(paste.created));
+
+    const codeElement = document.getElementById('view-code');
+    const preElement = document.getElementById('view-code-pre');
+    preElement.querySelectorAll('.line-numbers-rows').forEach((element) => element.remove());
+    codeElement.textContent = paste.content;
+    codeElement.className = `language-${languageInfo.prism}`;
+
+    window.setTimeout(() => {
+        if (window.Prism?.highlightElement) {
+            window.Prism.highlightElement(codeElement);
+        }
+        preElement.classList.add('line-numbers');
+    }, 50);
+
+    const deleteButton = document.getElementById('delete-paste-btn');
+    const isOwner = Boolean(currentUser && paste.ownerUid === currentUser.uid);
+    if (deleteButton) deleteButton.classList.toggle('hidden', !isOwner);
+
+    if (paste.burnAfterRead) {
+        window.setTimeout(() => {
+            showToast('الحذف بعد القراءة يحتاج Cloud Function ليكون آمناً؛ الخيار محفوظ كتجريبي');
+        }, 1000);
+    }
+
+    updateStat('stat-views', 'views', true);
+}
+
+function formatRemaining(milliseconds) {
+    const minutes = Math.max(0, Math.floor(milliseconds / 60000));
+    if (minutes < 60) return `${minutes} دقيقة`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} ساعة`;
+    return `${Math.floor(hours / 24)} يوم`;
+}
+
+function timeAgo(date) {
+    const timestamp = date instanceof Date ? date.getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) return 'بتاريخ غير معروف';
+
+    const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (seconds < 60) return 'الآن';
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `منذ ${minutes} دقيقة`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `منذ ${hours} ساعة`;
+
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `منذ ${days} يوم`;
+
+    return new Date(timestamp).toLocaleDateString('ar-DZ', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Global counters are now stored in Firebase Realtime Database.
+async function updateStat(elementId, key, doIncrement = false) {
+    const element = document.getElementById(elementId);
+    const counterRef = ref(database, `stats/${key}`);
+
+    try {
+        let value = 0;
+        if (doIncrement) {
+            if (!currentUser) throw new Error('Authentication required for counter write');
+            const result = await runTransaction(
+                counterRef,
+                (currentValue) => (Number(currentValue) || 0) + 1,
+                { applyLocally: false }
+            );
+            value = Number(result.snapshot.val()) || 0;
+        } else {
+            const snapshot = await get(counterRef);
+            value = Number(snapshot.val()) || 0;
         }
 
-        // Time ago in Arabic
-        function timeAgo(date) {
-            const now = new Date();
-            const seconds = Math.floor((now - date) / 1000);
-            
-            if (seconds < 60) return 'الآن';
-            
-            const minutes = Math.floor(seconds / 60);
-            if (minutes < 60) return `منذ ${minutes} دقيقة`;
-            
-            const hours = Math.floor(minutes / 60);
-            if (hours < 24) return `منذ ${hours} ساعة`;
-            
-            const days = Math.floor(hours / 24);
-            if (days < 7) return `منذ ${days} يوم`;
-            
-            return date.toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' });
+        if (element) element.textContent = value.toLocaleString('en-US');
+        return value;
+    } catch (error) {
+        console.warn(`[PastePro] Could not ${doIncrement ? 'increment' : 'read'} counter ${key}:`, error);
+        if (element && (!element.textContent || element.textContent === '—')) {
+            element.textContent = '0';
         }
+        return 0;
+    }
+}
 
-        // ==================== COUNTERS (using free CountAPI - no registration needed) ====================
-        const COUNTER_API = 'https://api.countapi.xyz';
-        const COUNTER_NS = 'pastepro2026'; // unique namespace for this site
+async function loadAndUpdateStats() {
+    await Promise.all([
+        updateStat('stat-visitors', 'visitors', true),
+        updateStat('stat-views', 'views', false),
+        updateStat('stat-copies', 'copies', false)
+    ]);
+}
 
-        async function updateStat(elementId, key, doIncrement = false) {
-            const el = document.getElementById(elementId);
-            if (!el) return 0;
+function getBasePageUrl() {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+}
 
-            try {
-                const endpoint = doIncrement ? 'hit' : 'get';
-                const res = await fetch(`${COUNTER_API}/${endpoint}/${COUNTER_NS}/${key}`);
-                if (!res.ok) throw new Error('API error');
-                const data = await res.json();
-                
-                // Format number nicely (with commas)
-                el.textContent = Number(data.value || 0).toLocaleString('en-US');
-                return data.value || 0;
-            } catch (err) {
-                console.warn('[PastePro] Counter API unavailable for', key, '- using fallback');
-                // Fallback demo numbers if API fails (e.g. offline or blocked)
-                const fallbacks = {
-                    'visitors': 124892,
-                    'views': 87341,
-                    'copies': 42156
-                };
-                if (!el.textContent || el.textContent === '—') {
-                    el.textContent = (fallbacks[key] || 0).toLocaleString('en-US');
-                }
-                return fallbacks[key] || 0;
-            }
-        }
+function getPasteUrl(pasteId) {
+    const url = new URL(getBasePageUrl());
+    url.searchParams.set('paste', pasteId);
+    return url.toString();
+}
 
-        async function loadAndUpdateStats() {
-            // Increment visitors counter on every page load (counts visits)
-            await updateStat('stat-visitors', 'visitors', true);
-            // Load current values for views & copies (no increment here)
-            await updateStat('stat-views', 'views', false);
-            await updateStat('stat-copies', 'copies', false);
-        }
+function showShareButtons(pasteId) {
+    const paste = currentPaste?.id === pasteId
+        ? currentPaste
+        : allPastes.find((item) => item.id === pasteId);
+    if (!paste) return;
 
-        // Show Facebook + Telegram share buttons after every copy
-        function showShareButtons(pasteId) {
-            const paste = allPastes.find(p => p.id === pasteId);
-            if (!paste) return;
+    const encodedUrl = encodeURIComponent(getPasteUrl(pasteId));
+    const shareText = encodeURIComponent(`تحقق من هذه اللصقة على PastePro: ${paste.title}`);
 
-            const baseUrl = window.location.origin + window.location.pathname;
-            const pasteUrl = `${baseUrl}?paste=${pasteId}`;
-            const encodedUrl = encodeURIComponent(pasteUrl);
-            const shareText = encodeURIComponent(`تحقق من هذه اللصقة على PastePro: ${paste.title}`);
+    document.getElementById('share-panel')?.remove();
 
-            // Remove any existing share panel
-            const existing = document.getElementById('share-panel');
-            if (existing) existing.remove();
+    const panel = document.createElement('div');
+    panel.id = 'share-panel';
+    panel.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-zinc-900 border border-zinc-700 rounded-3xl shadow-2xl p-5 z-[200] flex flex-col items-center gap-y-3 min-w-[280px]';
+    panel.innerHTML = `
+        <div class="flex items-center gap-x-2 text-sm font-medium text-zinc-300">
+            <i class="fas fa-share-alt text-indigo-400"></i>
+            <span>شارك هذه اللصقة</span>
+        </div>
+        <div class="flex items-center gap-x-3 w-full">
+            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}"
+               target="_blank" rel="noopener noreferrer"
+               class="flex-1 flex items-center justify-center gap-x-2 px-5 py-2.5 bg-[#1877F2] hover:bg-[#166FE0] transition-all text-white text-sm font-semibold rounded-2xl">
+                <i class="fab fa-facebook-f"></i><span>فيسبوك</span>
+            </a>
+            <a href="https://t.me/share/url?url=${encodedUrl}&text=${shareText}"
+               target="_blank" rel="noopener noreferrer"
+               class="flex-1 flex items-center justify-center gap-x-2 px-5 py-2.5 bg-[#229ED9] hover:bg-[#1A8BC7] transition-all text-white text-sm font-semibold rounded-2xl">
+                <i class="fab fa-telegram-plane"></i><span>تيليغرام</span>
+            </a>
+        </div>
+        <button onclick="document.getElementById('share-panel')?.remove()"
+                class="mt-1 text-xs px-4 py-1 text-zinc-400 hover:text-zinc-300 transition-colors">إغلاق</button>
+    `;
+    document.body.appendChild(panel);
 
-            const panel = document.createElement('div');
-            panel.id = 'share-panel';
-            panel.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-zinc-900 border border-zinc-700 rounded-3xl shadow-2xl p-5 z-[200] flex flex-col items-center gap-y-3 min-w-[280px]';
-            panel.innerHTML = `
-                <div class="flex items-center gap-x-2 text-sm font-medium text-zinc-300">
-                    <i class="fas fa-share-alt text-indigo-400"></i>
-                    <span>شارك هذه اللصقة</span>
+    window.setTimeout(() => {
+        if (!panel.isConnected) return;
+        panel.style.transition = 'opacity 0.3s ease';
+        panel.style.opacity = '0';
+        window.setTimeout(() => panel.remove(), 300);
+    }, 15000);
+}
+
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (error) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw error;
+    }
+}
+
+async function copyPasteContent() {
+    if (!currentPaste) return;
+
+    try {
+        await copyText(currentPaste.content);
+        showToast('تم نسخ المحتوى إلى الحافظة');
+        updateStat('stat-copies', 'copies', true);
+        window.setTimeout(() => showShareButtons(currentPasteId), 350);
+    } catch (error) {
+        console.error('[PastePro] Copy failed:', error);
+        showToast('تعذر نسخ المحتوى', true);
+    }
+}
+
+function viewRaw() {
+    if (!currentPasteId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('raw', '1');
+    window.open(url.toString(), '_blank', 'noopener');
+}
+
+function safeFilename(title, extension) {
+    const cleanTitle = String(title || 'paste')
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80) || 'paste';
+    return `${cleanTitle}.${extension}`;
+}
+
+function downloadPaste() {
+    if (!currentPaste) return;
+
+    const languageInfo = LANGUAGES.find((item) => item.value === currentPaste.language) || LANGUAGES[0];
+    const blob = new Blob([currentPaste.content], { type: 'text/plain;charset=utf-8' });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = safeFilename(currentPaste.title, languageInfo.ext);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    showToast('تم بدء تحميل الملف');
+}
+
+async function deletePasteById(pasteId, knownPaste = null) {
+    const id = normalizePasteId(pasteId);
+    const paste = knownPaste || allPastes.find((item) => item.id === id) || (currentPaste?.id === id ? currentPaste : null);
+
+    if (!id || !currentUser || !paste || paste.ownerUid !== currentUser.uid) {
+        throw new Error('You are not the owner of this paste');
+    }
+
+    await update(ref(database), {
+        [`pastes/${id}`]: null,
+        [`userPastes/${currentUser.uid}/${id}`]: null
+    });
+
+    allPastes = allPastes.filter((item) => item.id !== id);
+    if (currentPasteId === id) {
+        currentPasteId = null;
+        currentPaste = null;
+    }
+}
+
+async function deleteCurrentPaste() {
+    if (!currentPasteId || !currentPaste) return;
+
+    if (!currentUser || currentPaste.ownerUid !== currentUser.uid) {
+        showToast('لا يمكنك حذف لصقة لا تملكها', true);
+        return;
+    }
+
+    if (!window.confirm('هل أنت متأكد من حذف هذه اللصقة نهائياً من Firebase؟')) return;
+
+    try {
+        await deletePasteById(currentPasteId, currentPaste);
+        showToast('تم حذف اللصقة من Firebase');
+
+        const url = new URL(window.location.href);
+        url.searchParams.delete('paste');
+        url.searchParams.delete('raw');
+        window.history.pushState({}, '', url);
+        showCreateView(false);
+    } catch (error) {
+        console.error('[PastePro] Delete failed:', error);
+        showToast(firebaseErrorMessage(error), true);
+    }
+}
+
+function showNotFound(message = 'قد تكون انتهت صلاحيتها أو تم حذفها') {
+    const createView = document.getElementById('create-view');
+    const myPastesView = document.getElementById('mypastes-view');
+    const view = document.getElementById('view-view');
+
+    createView?.classList.add('hidden');
+    myPastesView?.classList.add('hidden');
+
+    view.innerHTML = `
+        <div class="max-w-md mx-auto text-center py-16">
+            <i class="fas fa-search text-6xl text-zinc-700 mb-6"></i>
+            <h3 class="text-2xl font-bold mb-2">اللصقة غير موجودة</h3>
+            <p id="not-found-message" class="text-zinc-400 mb-8"></p>
+            <button onclick="showCreateView()"
+                    class="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 transition-colors rounded-2xl font-semibold">
+                العودة للصفحة الرئيسية
+            </button>
+        </div>
+    `;
+    document.getElementById('not-found-message').textContent = message;
+    view.classList.remove('hidden');
+}
+
+function showCreateView(updateUrl = true) {
+    restorePasteViewStructure();
+    document.getElementById('create-view').classList.remove('hidden');
+    document.getElementById('view-view').classList.add('hidden');
+    document.getElementById('mypastes-view').classList.add('hidden');
+
+    if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('paste');
+        url.searchParams.delete('raw');
+        window.history.pushState({}, '', url);
+    }
+
+    currentPasteId = null;
+    currentPaste = null;
+
+    document.getElementById('paste-title').value = '';
+    document.getElementById('paste-content').value = '';
+    document.getElementById('burn-after-read').checked = false;
+}
+
+function showMyPastesView() {
+    restorePasteViewStructure();
+    document.getElementById('create-view').classList.add('hidden');
+    document.getElementById('view-view').classList.add('hidden');
+    document.getElementById('mypastes-view').classList.remove('hidden');
+    renderMyPastes();
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function renderMyPastes(filteredPastes = null) {
+    const container = document.getElementById('pastes-list');
+    const noPastes = document.getElementById('no-pastes');
+
+    const source = filteredPastes ?? allPastes;
+    const pastesToShow = sortPastesNewestFirst(source.filter((paste) => !isPasteExpired(paste)));
+    container.replaceChildren();
+
+    if (pastesToShow.length === 0) {
+        noPastes.classList.remove('hidden');
+        container.classList.add('hidden');
+        return;
+    }
+
+    noPastes.classList.add('hidden');
+    container.classList.remove('hidden');
+
+    pastesToShow.forEach((paste) => {
+        const languageInfo = LANGUAGES.find((item) => item.value === paste.language) || LANGUAGES[0];
+        const card = document.createElement('div');
+        card.className = 'paste-card bg-zinc-900 border border-zinc-700 hover:border-zinc-600 rounded-3xl p-5 cursor-pointer group';
+
+        card.innerHTML = `
+            <div class="flex justify-between items-start mb-3">
+                <div class="flex-1 min-w-0 pr-3">
+                    <div class="font-semibold text-lg leading-tight line-clamp-2 group-hover:text-indigo-400 transition-colors">${escapeHtml(paste.title)}</div>
                 </div>
-                <div class="flex items-center gap-x-3 w-full">
-                    <a href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}" 
-                       target="_blank" rel="noopener"
-                       class="flex-1 flex items-center justify-center gap-x-2 px-5 py-2.5 bg-[#1877F2] hover:bg-[#166FE0] active:bg-[#145DBF] transition-all text-white text-sm font-semibold rounded-2xl">
-                        <i class="fab fa-facebook-f"></i>
-                        <span>فيسبوك</span>
-                    </a>
-                    <a href="https://t.me/share/url?url=${encodedUrl}&text=${shareText}" 
-                       target="_blank" rel="noopener"
-                       class="flex-1 flex items-center justify-center gap-x-2 px-5 py-2.5 bg-[#229ED9] hover:bg-[#1A8BC7] active:bg-[#1687B8] transition-all text-white text-sm font-semibold rounded-2xl">
-                        <i class="fab fa-telegram-plane"></i>
-                        <span>تيليغرام</span>
-                    </a>
+            </div>
+            <div class="flex items-center gap-x-2 mb-4">
+                <div class="px-3 py-1 text-xs bg-zinc-800 text-zinc-300 rounded-2xl flex items-center gap-x-1.5">
+                    <i class="fas fa-code text-indigo-400 text-xs"></i>
+                    <span>${escapeHtml(languageInfo.label)}</span>
                 </div>
-                <div class="text-[10px] text-zinc-500 flex items-center gap-x-1">
-                    <i class="fas fa-link text-xs"></i>
-                    <span>أو انسخ الرابط من الأعلى</span>
+                <div class="text-xs text-zinc-500 flex items-center gap-x-1">
+                    <i class="fas fa-clock text-xs"></i>
+                    <span>${escapeHtml(timeAgo(new Date(paste.created)))}</span>
                 </div>
-                <button onclick="document.getElementById('share-panel')?.remove()" 
-                        class="mt-1 text-xs px-4 py-1 text-zinc-400 hover:text-zinc-300 transition-colors">إغلاق</button>
-            `;
-            document.body.appendChild(panel);
-
-            // Auto-hide after 15 seconds
-            setTimeout(() => {
-                if (panel && panel.parentNode) {
-                    panel.style.transition = 'opacity 0.3s ease';
-                    panel.style.opacity = '0';
-                    setTimeout(() => panel.parentNode?.removeChild(panel), 300);
-                }
-            }, 15000);
-        }
-
-        // Copy paste content
-        function copyPasteContent() {
-            const paste = allPastes.find(p => p.id === currentPasteId);
-            if (!paste) return;
-
-            navigator.clipboard.writeText(paste.content).then(() => {
-                showToast('تم نسخ المحتوى إلى الحافظة');
-                // Increment global copies counter
-                updateStat('stat-copies', 'copies', true);
-                // Show FB + Telegram share buttons
-                setTimeout(() => {
-                    showShareButtons(currentPasteId);
-                }, 450);
-            }).catch(() => {
-                // Fallback
-                const textarea = document.createElement('textarea');
-                textarea.value = paste.content;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                showToast('تم نسخ المحتوى');
-                updateStat('stat-copies', 'copies', true);
-                setTimeout(() => {
-                    showShareButtons(currentPasteId);
-                }, 450);
-            });
-        }
-
-        // View raw
-        function viewRaw() {
-            if (!currentPasteId) return;
-            const url = new URL(window.location);
-            url.searchParams.set('raw', '1');
-            window.open(url.toString(), '_blank');
-        }
-
-        // Download paste
-        function downloadPaste() {
-            const paste = allPastes.find(p => p.id === currentPasteId);
-            if (!paste) return;
-
-            const langInfo = LANGUAGES.find(l => l.value === paste.language) || LANGUAGES[0];
-            const filename = `${paste.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${langInfo.ext}`;
-
-            const blob = new Blob([paste.content], { type: 'text/plain;charset=utf-8' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showToast('جاري تحميل الملف...');
-        }
-
-        // Delete current paste
-        function deleteCurrentPaste() {
-            if (!currentPasteId || !confirm('هل أنت متأكد من حذف هذه اللصقة؟')) return;
-
-            allPastes = allPastes.filter(p => p.id !== currentPasteId);
-            savePastes();
-
-            showToast('تم حذف اللصقة');
-            
-            // Go back to create
-            setTimeout(() => {
-                const url = new URL(window.location);
-                url.searchParams.delete('paste');
-                window.history.pushState({}, '', url);
-                showCreateView();
-            }, 800);
-        }
-
-        // Show not found
-        function showNotFound() {
-            const viewDiv = document.getElementById('view-view');
-            viewDiv.innerHTML = `
-                <div class="max-w-md mx-auto text-center py-16">
-                    <i class="fas fa-search text-6xl text-zinc-700 mb-6"></i>
-                    <h3 class="text-2xl font-bold mb-2">اللصقة غير موجودة</h3>
-                    <p class="text-zinc-400 mb-8">قد تكون انتهت صلاحيتها أو تم حذفها</p>
-                    <button onclick="showCreateView()" 
-                            class="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 transition-colors rounded-2xl font-semibold">
-                        العودة للصفحة الرئيسية
+            </div>
+            <div class="flex items-center justify-between">
+                <div class="text-xs font-mono text-zinc-400">#${paste.id}</div>
+                <div class="flex gap-x-1 opacity-70 group-hover:opacity-100 transition-opacity" onclick="event.stopImmediatePropagation()">
+                    <button onclick="viewPasteFromList('${paste.id}', event)"
+                            class="px-3 py-1.5 text-xs hover:bg-zinc-700 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
+                        <i class="fas fa-eye text-xs"></i><span>عرض</span>
+                    </button>
+                    <button onclick="copyLinkFromList('${paste.id}', event)"
+                            class="px-3 py-1.5 text-xs hover:bg-zinc-700 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
+                        <i class="fas fa-link text-xs"></i>
+                    </button>
+                    <button onclick="deletePasteFromList('${paste.id}', event)"
+                            class="px-3 py-1.5 text-xs hover:bg-red-900/60 text-red-400 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
+                        <i class="fas fa-trash text-xs"></i>
                     </button>
                 </div>
-            `;
-            viewDiv.classList.remove('hidden');
-        }
+            </div>
+        `;
 
-        // Show create view
-        function showCreateView() {
-            document.getElementById('create-view').classList.remove('hidden');
-            document.getElementById('view-view').classList.add('hidden');
-            document.getElementById('mypastes-view').classList.add('hidden');
+        card.addEventListener('click', () => showPasteFromList(paste.id));
+        container.appendChild(card);
+    });
+}
 
-            // Clear URL params
-            const url = new URL(window.location);
-            url.searchParams.delete('paste');
-            url.searchParams.delete('raw');
-            window.history.pushState({}, '', url);
+function filterMyPastes() {
+    const search = document.getElementById('search-pastes');
+    const term = search.value.toLocaleLowerCase('ar').trim();
 
-            currentPasteId = null;
-            
-            // Reset form
-            document.getElementById('paste-title').value = '';
-            document.getElementById('paste-content').value = '';
-            document.getElementById('burn-after-read').checked = false;
-        }
+    if (!term) {
+        renderMyPastes();
+        return;
+    }
 
-        // Show my pastes
-        function showMyPastesView() {
-            document.getElementById('create-view').classList.add('hidden');
-            document.getElementById('view-view').classList.add('hidden');
-            const myPastesDiv = document.getElementById('mypastes-view');
-            myPastesDiv.classList.remove('hidden');
+    const filtered = allPastes.filter((paste) =>
+        paste.title.toLocaleLowerCase('ar').includes(term)
+        || paste.content.toLocaleLowerCase('ar').includes(term)
+        || paste.id.toLowerCase().includes(term)
+    );
+    renderMyPastes(filtered);
+}
 
-            renderMyPastes();
-        }
+function showPasteFromList(id) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('paste', id);
+    url.searchParams.delete('raw');
+    window.history.pushState({}, '', url);
+    showPasteView(id);
+}
 
-        // Render my pastes list
-        function renderMyPastes(filteredPastes = null) {
-            const container = document.getElementById('pastes-list');
-            const noPastes = document.getElementById('no-pastes');
-            
-            let pastesToShow = filteredPastes || [...allPastes];
-            
-            // Sort by created date desc
-            pastesToShow.sort((a, b) => new Date(b.created) - new Date(a.created));
+function viewPasteFromList(id, eventObject) {
+    eventObject?.stopImmediatePropagation();
+    showPasteFromList(id);
+}
 
-            container.innerHTML = '';
-            
-            if (pastesToShow.length === 0) {
-                noPastes.classList.remove('hidden');
-                container.classList.add('hidden');
-                return;
-            }
-            
-            noPastes.classList.add('hidden');
-            container.classList.remove('hidden');
+async function copyLinkFromList(id, eventObject) {
+    eventObject?.stopImmediatePropagation();
+    try {
+        await copyText(getPasteUrl(id));
+        showToast('تم نسخ رابط اللصقة');
+    } catch (error) {
+        console.error('[PastePro] Link copy failed:', error);
+        window.prompt('انسخ الرابط التالي:', getPasteUrl(id));
+    }
+}
 
-            pastesToShow.forEach(paste => {
-                const langInfo = LANGUAGES.find(l => l.value === paste.language) || LANGUAGES[0];
-                const isExpired = paste.expiresAt && Date.now() > paste.expiresAt;
-                
-                const card = document.createElement('div');
-                card.className = `paste-card bg-zinc-900 border border-zinc-700 hover:border-zinc-600 rounded-3xl p-5 cursor-pointer group`;
-                
-                card.innerHTML = `
-                    <div class="flex justify-between items-start mb-3">
-                        <div class="flex-1 min-w-0 pr-3">
-                            <div class="font-semibold text-lg leading-tight line-clamp-2 group-hover:text-indigo-400 transition-colors">${paste.title}</div>
-                        </div>
-                        ${isExpired ? 
-                            `<div class="px-2.5 py-0.5 text-[10px] bg-red-900/70 text-red-300 rounded-xl flex-shrink-0 self-start">منتهية</div>` : 
-                            ''}
-                    </div>
-                    
-                    <div class="flex items-center gap-x-2 mb-4">
-                        <div class="px-3 py-1 text-xs bg-zinc-800 text-zinc-300 rounded-2xl flex items-center gap-x-1.5">
-                            <i class="fas fa-code text-indigo-400 text-xs"></i>
-                            <span>${langInfo.label}</span>
-                        </div>
-                        
-                        <div class="text-xs text-zinc-500 flex items-center gap-x-1">
-                            <i class="fas fa-clock text-xs"></i>
-                            <span>${timeAgo(new Date(paste.created))}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="flex items-center justify-between">
-                        <div class="text-xs font-mono text-zinc-400">#${paste.id}</div>
-                        
-                        <div class="flex gap-x-1 opacity-70 group-hover:opacity-100 transition-opacity" onclick="event.stopImmediatePropagation()">
-                            <button onclick="viewPasteFromList('${paste.id}', event)" 
-                                    class="px-3 py-1.5 text-xs hover:bg-zinc-700 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
-                                <i class="fas fa-eye text-xs"></i>
-                                <span>عرض</span>
-                            </button>
-                            
-                            <button onclick="copyLinkFromList('${paste.id}', event)" 
-                                    class="px-3 py-1.5 text-xs hover:bg-zinc-700 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
-                                <i class="fas fa-link text-xs"></i>
-                            </button>
-                            
-                            <button onclick="deletePasteFromList('${paste.id}', event)" 
-                                    class="px-3 py-1.5 text-xs hover:bg-red-900/60 text-red-400 bg-zinc-800 rounded-xl flex items-center gap-x-1.5 transition-colors">
-                                <i class="fas fa-trash text-xs"></i>
-                            </button>
-                        </div>
-                    </div>
-                `;
-                
-                card.onclick = () => showPasteFromList(paste.id);
-                container.appendChild(card);
-            });
-        }
+async function deletePasteFromList(id, eventObject) {
+    eventObject?.stopImmediatePropagation();
+    const paste = allPastes.find((item) => item.id === id);
+    if (!paste) return;
 
-        function filterMyPastes() {
-            const term = document.getElementById('search-pastes').value.toLowerCase().trim();
-            if (!term) {
-                renderMyPastes();
-                return;
-            }
-            
-            const filtered = allPastes.filter(p => 
-                p.title.toLowerCase().includes(term) || 
-                p.content.toLowerCase().includes(term) ||
-                p.id.toLowerCase().includes(term)
-            );
-            renderMyPastes(filtered);
-        }
+    if (!window.confirm('حذف هذه اللصقة نهائياً من Firebase؟')) return;
 
-        function showPasteFromList(id) {
-            const url = new URL(window.location);
-            url.searchParams.set('paste', id);
-            window.history.pushState({}, '', url);
-            showPasteView(id);
-        }
+    try {
+        await deletePasteById(id, paste);
+        renderMyPastes();
+        showToast('تم حذف اللصقة من Firebase');
+    } catch (error) {
+        console.error('[PastePro] Delete from list failed:', error);
+        showToast(firebaseErrorMessage(error), true);
+    }
+}
 
-        function viewPasteFromList(id, e) {
-            e.stopImmediatePropagation();
-            showPasteFromList(id);
-        }
-
-        function copyLinkFromList(id, e) {
-            e.stopImmediatePropagation();
-            const url = new URL(window.location.origin + window.location.pathname);
-            url.searchParams.set('paste', id);
-            
-            navigator.clipboard.writeText(url.toString()).then(() => {
-                showToast('تم نسخ رابط اللصقة');
-            }).catch(() => {
-                prompt('انسخ الرابط التالي:', url.toString());
-            });
-        }
-
-        function deletePasteFromList(id, e) {
-            e.stopImmediatePropagation();
-            if (!confirm('حذف هذه اللصقة نهائياً؟')) return;
-            
-            allPastes = allPastes.filter(p => p.id !== id);
-            savePastes();
-            renderMyPastes();
-            showToast('تم الحذف');
-        }
-
-        // Load example content
-        function loadExample() {
-            document.getElementById('paste-title').value = 'مثال: دالة React Hook مخصصة';
-            document.getElementById('paste-language').value = 'javascript';
-            document.getElementById('paste-content').value = `import { useState, useEffect } from 'react';
+function loadExample() {
+    document.getElementById('paste-title').value = 'مثال: دالة React Hook مخصصة';
+    document.getElementById('paste-language').value = 'javascript';
+    document.getElementById('paste-content').value = `import { useState, useEffect } from 'react';
 
 function useLocalStorage(key, initialValue) {
   const [storedValue, setStoredValue] = useState(() => {
@@ -1181,186 +1565,232 @@ function useLocalStorage(key, initialValue) {
 }
 
 export default useLocalStorage;`;
-            
-            showToast('تم تحميل المثال');
-        }
+    showToast('تم تحميل المثال');
+}
 
-        // Toast
-        let toastTimeout;
-        function showToast(message, isError = false) {
-            const toast = document.getElementById('toast');
-            const text = document.getElementById('toast-text');
-            
-            text.textContent = message;
-            toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-2xl shadow-xl flex items-center gap-x-3 z-[100] ${isError ? 'bg-red-900 border border-red-700' : 'bg-zinc-800 border border-zinc-700'}`;
-            
-            toast.style.display = 'flex';
-            toast.classList.remove('hidden');
-            
-            clearTimeout(toastTimeout);
-            toastTimeout = setTimeout(() => {
-                toast.style.transition = 'all 0.2s ease';
-                toast.style.opacity = '0';
-                
-                setTimeout(() => {
-                    toast.style.opacity = '1';
-                    toast.style.transition = '';
-                    toast.style.display = 'none';
-                    toast.classList.add('hidden');
-                }, 200);
-            }, 2800);
-        }
+function showToast(message, isError = false) {
+    const toast = document.getElementById('toast');
+    const text = document.getElementById('toast-text');
+    if (!toast || !text) return;
 
-        // Handle URL params on load (for direct paste links)
-        function handleUrlParams() {
-            const params = new URLSearchParams(window.location.search);
-            const pasteId = params.get('paste');
-            const isRaw = params.get('raw') === '1';
+    text.textContent = message;
+    toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-2xl shadow-xl flex items-center gap-x-3 z-[100] ${isError ? 'bg-red-900 border border-red-700' : 'bg-zinc-800 border border-zinc-700'}`;
+    toast.style.display = 'flex';
+    toast.classList.remove('hidden');
 
-            if (pasteId) {
-                const paste = allPastes.find(p => p.id === pasteId);
-                
-                if (isRaw && paste) {
-                    // Raw view
-                    document.body.innerHTML = `
-                        <div class="min-h-screen bg-zinc-950 text-zinc-200 p-8">
-                            <div class="max-w-screen-xl mx-auto">
-                                <div class="flex items-center justify-between mb-6">
-                                    <div class="flex items-center gap-x-3">
-                                        <div onclick="window.location.href='${window.location.origin + window.location.pathname}'" class="cursor-pointer flex items-center gap-x-3">
-                                            <div class="w-9 h-9 bg-indigo-600 rounded-2xl flex items-center justify-center">
-                                                <i class="fas fa-paste text-white"></i>
-                                            </div>
-                                            <span class="font-bold text-2xl">Paste<span class="text-indigo-500">Pro</span></span>
-                                        </div>
-                                        <div class="text-xs px-3 py-1 bg-zinc-900 rounded-full text-zinc-400">النسخة الخام</div>
-                                    </div>
-                                    
-                                    <div>
-                                        <a href="${window.location.origin + window.location.pathname}?paste=${pasteId}" 
-                                           class="px-5 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 transition-colors rounded-2xl flex items-center gap-x-2">
-                                            <i class="fas fa-magic"></i>
-                                            <span>عرض منسق</span>
-                                        </a>
-                                    </div>
-                                </div>
-                                
-                                <div class="mb-3 flex items-center justify-between text-sm">
-                                    <div>
-                                        <span class="font-semibold">${paste.title}</span>
-                                        <span class="mx-2 text-zinc-500">•</span>
-                                        <span class="font-mono text-xs text-zinc-400">#${paste.id}</span>
-                                    </div>
-                                    <button onclick="navigator.clipboard.writeText(\`${paste.content.replace(/`/g, '\\`')}\`).then(()=>alert('تم النسخ'))" 
-                                            class="text-xs px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center gap-x-2">
-                                        <i class="fas fa-copy"></i> نسخ
-                                    </button>
-                                </div>
-                                
-                                <pre class="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl text-sm leading-relaxed overflow-auto whitespace-pre-wrap font-mono" style="max-height: calc(100vh - 220px);">${paste.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-                            </div>
+    window.clearTimeout(toastTimeout);
+    toastTimeout = window.setTimeout(() => {
+        toast.style.transition = 'all 0.2s ease';
+        toast.style.opacity = '0';
+        window.setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transition = '';
+            toast.style.display = 'none';
+            toast.classList.add('hidden');
+        }, 200);
+    }, 3200);
+}
+
+function renderRawView(paste) {
+    document.body.className = 'bg-zinc-950 text-zinc-200';
+    document.body.innerHTML = `
+        <div class="min-h-screen bg-zinc-950 text-zinc-200 p-4 sm:p-8">
+            <div class="max-w-screen-xl mx-auto">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <a id="raw-home-link" class="cursor-pointer flex items-center gap-x-3">
+                        <div class="w-9 h-9 bg-indigo-600 rounded-2xl flex items-center justify-center">
+                            <i class="fas fa-paste text-white"></i>
                         </div>
-                    `;
-                } else if (paste) {
-                    // Normal formatted view
-                    document.getElementById('create-view').classList.add('hidden');
-                    showPasteView(pasteId);
-                } else {
-                    showNotFound();
-                }
+                        <span class="font-bold text-2xl">Paste<span class="text-indigo-500">Pro</span></span>
+                        <span class="text-xs px-3 py-1 bg-zinc-900 rounded-full text-zinc-400">النسخة الخام</span>
+                    </a>
+                    <a id="raw-formatted-link"
+                       class="px-5 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 transition-colors rounded-2xl flex items-center gap-x-2">
+                        <i class="fas fa-magic"></i><span>عرض منسق</span>
+                    </a>
+                </div>
+                <div class="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
+                    <div>
+                        <span id="raw-title" class="font-semibold"></span>
+                        <span class="mx-2 text-zinc-500">•</span>
+                        <span id="raw-id" class="font-mono text-xs text-zinc-400"></span>
+                    </div>
+                    <button id="raw-copy-button"
+                            class="text-xs px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center justify-center gap-x-2">
+                        <i class="fas fa-copy"></i><span>نسخ</span>
+                    </button>
+                </div>
+                <pre id="raw-content" dir="auto" class="bg-zinc-900 border border-zinc-800 p-6 sm:p-8 rounded-3xl text-sm leading-relaxed overflow-auto whitespace-pre-wrap font-mono" style="max-height: calc(100vh - 220px);"></pre>
+            </div>
+        </div>
+    `;
+
+    const formattedUrl = getPasteUrl(paste.id);
+    document.getElementById('raw-home-link').href = getBasePageUrl();
+    document.getElementById('raw-formatted-link').href = formattedUrl;
+    document.getElementById('raw-title').textContent = paste.title;
+    document.getElementById('raw-id').textContent = `#${paste.id}`;
+    document.getElementById('raw-content').textContent = paste.content;
+    document.title = `${paste.title} • PastePro`;
+
+    document.getElementById('raw-copy-button').addEventListener('click', async () => {
+        try {
+            await copyText(paste.content);
+            window.alert('تم نسخ المحتوى');
+            updateStat('stat-copies', 'copies', true);
+        } catch (error) {
+            window.alert('تعذر نسخ المحتوى');
+        }
+    });
+}
+
+async function handleUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const pasteId = normalizePasteId(params.get('paste'));
+    const isRaw = params.get('raw') === '1';
+
+    if (!pasteId) return false;
+
+    let paste;
+    try {
+        paste = await fetchPasteById(pasteId);
+    } catch (error) {
+        showToast(firebaseErrorMessage(error), true);
+        showNotFound('تعذر الوصول إلى Firebase');
+        return false;
+    }
+
+    if (!paste || isPasteExpired(paste)) {
+        showNotFound('قد تكون اللصقة منتهية الصلاحية أو محذوفة');
+        return false;
+    }
+
+    if (isRaw) {
+        currentPasteId = pasteId;
+        currentPaste = paste;
+        updateStat('stat-views', 'views', true);
+        renderRawView(paste);
+        return true;
+    }
+
+    await showPasteView(pasteId, paste);
+    return false;
+}
+
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (eventObject) => {
+        if ((eventObject.ctrlKey || eventObject.metaKey) && eventObject.key === 'Enter') {
+            const createView = document.getElementById('create-view');
+            if (createView && !createView.classList.contains('hidden')) {
+                eventObject.preventDefault();
+                createPaste();
             }
         }
 
-        // Keyboard shortcuts
-        function setupKeyboardShortcuts() {
-            document.addEventListener('keydown', function(e) {
-                // Ctrl/Cmd + Enter to create
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    const createView = document.getElementById('create-view');
-                    if (!createView.classList.contains('hidden')) {
-                        e.preventDefault();
-                        createPaste();
-                    }
-                }
-                
-                // Escape to go back to create
-                if (e.key === 'Escape') {
-                    const viewVisible = !document.getElementById('view-view').classList.contains('hidden');
-                    const myPastesVisible = !document.getElementById('mypastes-view').classList.contains('hidden');
-                    
-                    if (viewVisible || myPastesVisible) {
-                        showCreateView();
-                    }
-                }
-                
-                // / to focus search in my pastes
-                if (e.key === '/' && document.getElementById('mypastes-view').classList.contains('hidden') === false) {
-                    const search = document.getElementById('search-pastes');
-                    if (document.activeElement !== search) {
-                        e.preventDefault();
-                        search.focus();
-                    }
-                }
-            });
-            
-            // Show hint
-            console.log('%c[PastePro] Keyboard shortcuts: Ctrl+Enter = Create, Esc = Back, / = Search', 'color:#52525b');
+        if (eventObject.key === 'Escape') {
+            const view = document.getElementById('view-view');
+            const myPastes = document.getElementById('mypastes-view');
+            const canGoBack = (view && !view.classList.contains('hidden'))
+                || (myPastes && !myPastes.classList.contains('hidden'));
+            if (canGoBack) showCreateView();
         }
 
-        // Initialize everything
-        function initializeApp() {
-            initializeTailwind();
-            loadPastes();
-            populateSelects();
-            
-            // Check URL for direct paste access
-            handleUrlParams();
-            
-            // Setup keyboard
-            setupKeyboardShortcuts();
-
-            // Load global live stats (visitors, views, copies)
-            loadAndUpdateStats();
-            
-            // If no URL param, show create (default)
-            const hasPasteParam = new URLSearchParams(window.location.search).has('paste');
-            if (!hasPasteParam) {
-                // Already showing create view by default
+        if (eventObject.key === '/') {
+            const myPastes = document.getElementById('mypastes-view');
+            const search = document.getElementById('search-pastes');
+            if (myPastes && search && !myPastes.classList.contains('hidden') && document.activeElement !== search) {
+                eventObject.preventDefault();
+                search.focus();
             }
-            
-            // Bonus: Make textarea grow nicely
-            const textarea = document.getElementById('paste-content');
-            textarea.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = Math.min(this.scrollHeight, 620) + 'px';
-            });
-            
-            // Easter egg: logo click shows stats
-            const logo = document.querySelector('.fa-paste').parentElement;
-            if (logo) {
-                logo.addEventListener('click', function() {
-                    if (event.detail === 3) { // triple click
-                        showToast('شكراً لاستخدامك PastePro! 💜');
-                    }
-                });
-            }
-            
-            // Welcome toast for first time users (demo)
-            if (!localStorage.getItem('pastepro_welcomed')) {
-                setTimeout(() => {
-                    // showToast('مرحباً! جرب إنشاء لصقتك الأولى');
-                    localStorage.setItem('pastepro_welcomed', 'true');
-                }, 4500);
-            }
-            
-            console.log('%c[PastePro] Professional paste site initialized successfully.', 'color:#3b82f6');
         }
+    });
+}
 
-        // Boot the app
-        window.onload = initializeApp;
-        
-        // Expose some functions for debugging (optional)
-        window.PastePro = { showCreateView, showMyPastesView, createPaste };
+// The original theme button did not have an implementation. Keep the page stable
+// rather than applying a partial theme that could reduce code readability.
+function toggleTheme() {
+    showToast('واجهة PastePro الحالية مصممة للوضع الليلي');
+}
+
+async function initializePastePro() {
+    initializeTailwind();
+    pasteViewTemplate = document.getElementById('view-view')?.innerHTML || '';
+    populateSelects();
+    setupKeyboardShortcuts();
+
+    const connected = await connectToFirebase({ showErrorToast: true });
+    if (connected) {
+        try {
+            await ensureUserPastesLoaded();
+        } catch (error) {
+            console.error('[PastePro] Initial paste load failed:', error);
+            showToast(firebaseErrorMessage(error), true);
+        }
+    }
+
+    // Counters are independent from paste rendering and update in parallel.
+    loadAndUpdateStats();
+
+    const renderedRaw = await handleUrlParams();
+    if (renderedRaw) return;
+
+    const textarea = document.getElementById('paste-content');
+    textarea?.addEventListener('input', function resizeTextarea() {
+        this.style.height = 'auto';
+        this.style.height = `${Math.min(this.scrollHeight, 620)}px`;
+    });
+
+    const logo = document.querySelector('.fa-paste')?.parentElement;
+    logo?.addEventListener('click', (eventObject) => {
+        if (eventObject.detail === 3) showToast('شكراً لاستخدامك PastePro! 💜');
+    });
+
+    if (!localStorage.getItem('pastepro_welcomed')) {
+        localStorage.setItem('pastepro_welcomed', 'true');
+    }
+
+    window.addEventListener('popstate', () => window.location.reload());
+    console.log('%c[PastePro] Firebase Realtime Database integration initialized.', 'color:#10b981');
+}
+
+// Inline HTML handlers need explicit exports because this is an ES module.
+Object.assign(window, {
+    showCreateView,
+    showMyPastesView,
+    createPaste,
+    loadExample,
+    copyPasteContent,
+    viewRaw,
+    downloadPaste,
+    deleteCurrentPaste,
+    filterMyPastes,
+    viewPasteFromList,
+    copyLinkFromList,
+    deletePasteFromList,
+    toggleTheme,
+    retryFirebaseConnection
+});
+
+window.PastePro = {
+    showCreateView,
+    showMyPastesView,
+    createPaste,
+    get connectionReady() { return firebaseConnected; },
+    get currentUserId() { return currentUser?.uid || null; },
+    get lastError() {
+        return lastFirebaseError
+            ? { code: String(lastFirebaseError.code || ''), message: String(lastFirebaseError.message || '') }
+            : null;
+    },
+    retry: retryFirebaseConnection
+};
+
+initializePastePro().catch((error) => {
+    console.error('[PastePro] Fatal initialization error:', error);
+    setFirebaseStatus('فشل تشغيل التطبيق', 'error');
+    showToast(firebaseErrorMessage(error), true);
+});
+
     </script>
 </body>
 </html>
